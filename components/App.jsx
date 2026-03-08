@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { C, F, SR, T, fmt, vintageLabel } from '../lib/constants';
+import { C, F, SR, EL, MCC, T, fmt, vintageLabel } from '../lib/constants';
 
 // ===== Auth =====
 const useAuth = () => {
@@ -15,7 +15,45 @@ const useAuth = () => {
   return { ok, login, logout };
 };
 
-// ===== Login Screen =====
+// ===== SVG Icons =====
+const IcoHome = ({ active }) => (
+  <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={active ? C.acc : '#A09A8C'} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 12l9-8 9 8" /><path d="M5 10v10h14V10" />
+  </svg>
+);
+const IcoSearch = ({ active }) => (
+  <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={active ? C.acc : '#A09A8C'} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+    <circle cx={11} cy={11} r={7} /><path d="M21 21l-4.35-4.35" />
+  </svg>
+);
+const IcoCamera = ({ active }) => (
+  <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={active ? C.acc : '#A09A8C'} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" /><circle cx={12} cy={13} r={4} />
+  </svg>
+);
+const IcoList = ({ active }) => (
+  <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={active ? C.acc : '#A09A8C'} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M8 6h13M8 12h13M8 18h13" /><path d="M3 6h.01M3 12h.01M3 18h.01" />
+  </svg>
+);
+const IcoSetting = ({ active }) => (
+  <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={active ? C.acc : '#A09A8C'} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+    <circle cx={12} cy={12} r={3} />
+    <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+  </svg>
+);
+const IcoBack = () => (
+  <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#A09A8C" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M15 18l-6-6 6-6" />
+  </svg>
+);
+const Chev = ({ open }) => (
+  <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#A09A8C" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
+    <path d="M6 9l6 6 6-6" />
+  </svg>
+);
+
+// ===== LoginScreen =====
 function LoginScreen({ onLogin }) {
   const [pin, setPin] = useState('');
   const [err, setErr] = useState(false);
@@ -69,60 +107,354 @@ function LoginScreen({ onLogin }) {
 function Toast({ msg, onClose }) {
   useEffect(() => { if (msg) { const t = setTimeout(onClose, 2500); return () => clearTimeout(t); } }, [msg, onClose]);
   if (!msg) return null;
-  return <div style={{ position:'fixed', bottom:80, left:'50%', transform:'translateX(-50%)', background:C.tx, color:'#fff', padding:'10px 20px', borderRadius:20, fontSize:13, fontFamily:F, zIndex:9999, whiteSpace:'nowrap' }}>{msg}</div>;
+  return <div style={{ position:'fixed', bottom:90, left:'50%', transform:'translateX(-50%)', background:C.tx, color:'#fff', padding:'10px 20px', borderRadius:20, fontSize:13, fontFamily:F, zIndex:9999, whiteSpace:'nowrap' }}>{msg}</div>;
 }
 
-// ===== Overlay =====
-function Overlay({ open, onClose, title, children }) {
+// ===== QBadge =====
+function QBadge({ q }) {
+  const bg = q <= 1 ? 'rgba(181,61,31,0.08)' : q <= 3 ? 'rgba(200,122,26,0.08)' : 'rgba(42,94,63,0.08)';
+  const fg = q <= 1 ? C.red : q <= 3 ? '#C87A1A' : C.green;
+  return <span style={{ fontSize:11, fontWeight:600, color:fg, background:bg, padding:'3px 8px', borderRadius:6, fontFamily:F }}>{q}本</span>;
+}
+
+// ===== BottomNav =====
+const TABS = [
+  { id: 'home', label: 'ホーム', Icon: IcoHome },
+  { id: 'search', label: '検索', Icon: IcoSearch },
+  { id: 'stock', label: '入出庫', Icon: IcoCamera },
+  { id: 'list', label: 'リスト', Icon: IcoList },
+  { id: 'settings', label: '設定', Icon: IcoSetting },
+];
+
+function BottomNav({ tab, onTab }) {
+  return (
+    <div style={{
+      position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)',
+      width:'100%', maxWidth:430,
+      background:'rgba(253,252,250,0.95)', backdropFilter:'blur(12px)', WebkitBackdropFilter:'blur(12px)',
+      borderTop:`1px solid ${C.bd}`, display:'flex', justifyContent:'space-around',
+      padding:'6px 0', paddingBottom:'calc(6px + env(safe-area-inset-bottom))',
+      zIndex:100,
+    }}>
+      {TABS.map(t => (
+        <button key={t.id} onClick={() => onTab(t.id)} style={{
+          background:'none', border:'none', cursor:'pointer', display:'flex', flexDirection:'column',
+          alignItems:'center', gap:2, padding:'4px 8px', opacity: tab === t.id ? 1 : 0.6,
+        }}>
+          <t.Icon active={tab === t.id} />
+          <span style={{ fontSize:9, fontWeight: tab === t.id ? 600 : 400, color: tab === t.id ? C.acc : '#A09A8C', fontFamily:F, letterSpacing:0.3 }}>{t.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ===== CatCard =====
+function CatCard({ label, count, qty, onClick }) {
+  const [fg, bg] = MCC[label] || ['#888', '#f5f5f5'];
+  return (
+    <div onClick={onClick} style={{ background:bg, borderRadius:2, padding:'10px 14px', cursor:'pointer', border:`1px solid ${C.bd}` }}>
+      <div style={{ fontSize:12, fontWeight:700, color:fg, marginBottom:3 }}>{label}</div>
+      <div style={{ fontSize:11, color:C.sub }}>{count}種 · {qty}本</div>
+    </div>
+  );
+}
+
+// ===== Bottom Sheet Modal =====
+function BottomSheet({ open, onClose, children }) {
+  const [closing, setClosing] = useState(false);
+  const close = () => { setClosing(true); setTimeout(() => { setClosing(false); onClose(); }, 250); };
   if (!open) return null;
   return (
-    <div style={{ position:'fixed', inset:0, zIndex:1000 }}>
-      <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.3)' }} onClick={onClose} />
-      <div style={{ position:'absolute', bottom:0, left:0, right:0, maxHeight:'92vh', background:C.card, borderRadius:'16px 16px 0 0', overflow:'auto', animation:'slideUp 0.3s ease' }}>
-        <div style={{ position:'sticky', top:0, background:C.card, padding:'16px 20px', borderBottom:`1px solid ${C.bd}`, display:'flex', justifyContent:'space-between', alignItems:'center', zIndex:1 }}>
-          <span style={{ fontSize:16, fontWeight:600, fontFamily:SR, color:C.tx }}>{title}</span>
-          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:20, color:C.sub, cursor:'pointer' }}>✕</button>
-        </div>
-        <div style={{ padding:20 }}>{children}</div>
+    <div style={{ position:'fixed', inset:0, zIndex:300 }}>
+      <div onClick={close} style={{ position:'absolute', inset:0, background:'rgba(20,18,14,0.55)', backdropFilter:'blur(4px)', WebkitBackdropFilter:'blur(4px)' }} />
+      <div style={{
+        position:'absolute', bottom:0, left:0, right:0, maxHeight:'85vh',
+        background:C.card, borderRadius:'16px 16px 0 0', padding:'20px 20px 36px',
+        overflowY:'auto', animation: closing ? 'slideDown 0.25s ease-in forwards' : 'slideUp 0.3s ease-out',
+      }}>
+        <div style={{ width:36, height:4, background:C.bd, borderRadius:2, margin:'0 auto 16px' }} />
+        {children}
       </div>
     </div>
   );
 }
 
-// ===== Beverage Card =====
-function BevCard({ item, onClick }) {
+// ===== HomeView =====
+function HomeView({ stores, categories, onNavigate }) {
+  const [expanded, setExpanded] = useState({});
+  const [storeSummary, setStoreSummary] = useState({});
+  const [totalItems, setTotalItems] = useState(0);
+
+  useEffect(() => {
+    if (stores.length === 0) return;
+    const fetchSummary = async () => {
+      const summaries = {};
+      for (const store of stores) {
+        try {
+          const r = await fetch(`/api/beverages?store=${store.id}&limit=1`);
+          const data = await r.json();
+          summaries[store.id] = { total: data.total || 0 };
+        } catch(e) { summaries[store.id] = { total: 0 }; }
+      }
+      setStoreSummary(summaries);
+      try {
+        const r = await fetch('/api/beverages?limit=1');
+        const data = await r.json();
+        setTotalItems(data.total || 0);
+      } catch(e) {}
+    };
+    fetchSummary();
+  }, [stores]);
+
+  const toggle = (id) => setExpanded(e => ({ ...e, [id]: !e[id] }));
+
+  const storeGradients = {
+    hakune: ['#EDE8DF', '#E4DED4'],
+    ippei: ['#E8E2D6', '#DDD7CC'],
+  };
+
   return (
-    <div onClick={() => onClick(item)} style={{
-      background:C.card, borderRadius:10, padding:'14px 16px', marginBottom:10, cursor:'pointer',
-      border:`1px solid ${C.bd}`, transition:'box-shadow 0.2s',
-    }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
-        <div style={{ flex:1, minWidth:0 }}>
-          <div style={{ fontSize:14, fontWeight:500, fontFamily:SR, color:C.tx, lineHeight:1.4, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
-          <div style={{ fontSize:12, color:C.sub, marginTop:2, fontFamily:F }}>{item.producer || ''}{item.vintage ? ` ${item.vintage}` : ''}</div>
-        </div>
-        <div style={{ textAlign:'right', flexShrink:0 }}>
-          <div style={{ fontSize:13, fontWeight:600, color:C.tx, fontFamily:F }}>{fmt(item.price)}</div>
-          <div style={{
-            fontSize:11, marginTop:4, padding:'2px 8px', borderRadius:10, fontFamily:F, fontWeight:500,
-            background: item.quantity > 0 ? '#E8F5E9' : '#FFEBEE',
-            color: item.quantity > 0 ? C.green : C.red,
-          }}>{item.quantity}{item.quantity > 0 ? '本' : ''}</div>
+    <div style={{ padding:'16px 16px 100px' }}>
+      <div style={{ fontSize:18, fontWeight:400, letterSpacing:2, color:C.tx, fontFamily:EL, marginBottom:16 }}>Wine Compass</div>
+
+      {/* All Inventory Summary */}
+      <div style={{
+        background:'linear-gradient(135deg, #E0DBCF 0%, #D5D0C6 100%)',
+        padding:'16px 20px', borderRadius:2, border:`1px solid ${C.bd}`, marginBottom:12,
+      }}>
+        <div style={{ fontSize:12, fontWeight:500, color:'#3A3630', fontFamily:SR, marginBottom:8 }}>全在庫</div>
+        <div style={{ display:'flex', justifyContent:'center' }}>
+          <div style={{ textAlign:'center' }}>
+            <div style={{ fontSize:20, fontWeight:600, color:'#3A3630', fontFamily:F }}>{totalItems}</div>
+            <div style={{ fontSize:10, color:'#7A7568' }}>アイテム</div>
+          </div>
         </div>
       </div>
-      {item.region && <div style={{ fontSize:11, color:C.sub, marginTop:6, fontFamily:F }}>{item.region}{item.appellation ? ` · ${item.appellation}` : ''}</div>}
+
+      {/* Store Cards */}
+      {stores.map(store => {
+        const [g1, g2] = storeGradients[store.id] || ['#EDE8DF', '#E4DED4'];
+        const isOpen = expanded[store.id];
+        const summary = storeSummary[store.id] || { total: 0 };
+        return (
+          <div key={store.id} style={{ marginBottom:10 }}>
+            <div onClick={() => toggle(store.id)} style={{
+              background:`linear-gradient(135deg, ${g1} 0%, ${g2} 100%)`,
+              padding:'14px 16px', borderRadius:2, border:`1px solid ${C.bd}`, cursor:'pointer',
+            }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div>
+                  <div style={{ fontSize:16, fontWeight:400, letterSpacing:2, color:'#3A3630', fontFamily:SR }}>{store.name}</div>
+                  <div style={{ fontSize:11, color:'#8A8478', marginTop:2 }}>{store.name_en || ''}</div>
+                </div>
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <span style={{ fontSize:12, color:'#8A8478' }}>{summary.total}種</span>
+                  <Chev open={isOpen} />
+                </div>
+              </div>
+            </div>
+            {isOpen && (
+              <div style={{ padding:'10px 8px', display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                {categories.filter(c => !c.parent_id).map(cat => (
+                  <CatCard key={cat.id} label={cat.name} count={0} qty={0}
+                    onClick={() => onNavigate('list-items', { store: store.id, category: cat.id, title: `${store.name} · ${cat.name}` })} />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-// ===== Beverage Detail =====
-function BevDetail({ item, stores, categories, onClose, onSave, onDelete }) {
+// ===== GlobalSearch =====
+function GlobalSearch({ stores, onSelect }) {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const debRef = useRef(null);
+
+  useEffect(() => {
+    if (q.length < 2) { setResults([]); return; }
+    if (debRef.current) clearTimeout(debRef.current);
+    debRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const r = await fetch(`/api/beverages?q=${encodeURIComponent(q)}&limit=30`);
+        const data = await r.json();
+        setResults(data.items || []);
+      } catch(e) { setResults([]); }
+      setSearching(false);
+    }, 300);
+  }, [q]);
+
+  const storeColor = {};
+  stores.forEach(s => { storeColor[s.id] = s.color || '#4A6352'; });
+
+  return (
+    <div style={{ minHeight:'100vh', background:C.bg }}>
+      <div style={{ padding:'12px 16px', display:'flex', gap:10 }}>
+        <input autoFocus value={q} onChange={e => setQ(e.target.value)}
+          placeholder="ワイン名・生産者・ヴィンテージ..."
+          style={{ flex:1, padding:'10px 14px', border:`1px solid ${C.bd}`, borderRadius:10, fontSize:14, fontFamily:F, background:C.card, outline:'none', boxSizing:'border-box' }} />
+      </div>
+      <div style={{ padding:'0 16px', maxHeight:'calc(100vh - 70px)', overflowY:'auto' }}>
+        {q.length < 2 ? (
+          <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>2文字以上で検索</div>
+        ) : searching ? (
+          <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>検索中...</div>
+        ) : results.length === 0 ? (
+          <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>該当なし</div>
+        ) : results.map(item => (
+          <div key={item.id} onClick={() => onSelect(item)} style={{
+            background:C.card, borderRadius:1, padding:'12px 14px 12px 20px', border:`1px solid ${C.bd}`,
+            marginBottom:5, cursor:'pointer', position:'relative',
+          }}>
+            <div style={{ position:'absolute', left:0, top:4, bottom:4, width:3, background: storeColor[item.store_id] || C.acc, opacity:0.6, borderRadius:'0 2px 2px 0' }} />
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
+                <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>{item.producer || ''}{item.vintage ? ` · ${item.vintage}` : ''}</div>
+              </div>
+              <div style={{ flexShrink:0, marginLeft:8 }}><QBadge q={item.quantity} /></div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ===== StockManager =====
+function StockManager({ onNavigate }) {
+  const actions = [
+    { icon: '📦', title: '在庫一覧', desc: '全アイテムを閲覧・管理', action: () => onNavigate('list-items', { title: '全在庫一覧' }) },
+    { icon: '➕', title: '新規追加', desc: 'アイテムを手動で追加', action: () => onNavigate('add') },
+    { icon: '📊', title: 'Excel取込', desc: 'Excelファイルから一括追加', action: () => {} },
+    { icon: '📋', title: 'CSV出力', desc: '在庫データをCSVでエクスポート', action: () => {} },
+    { icon: '🗑️', title: 'ゴミ箱', desc: '削除済みアイテムの復元', action: () => {} },
+  ];
+
+  return (
+    <div style={{ padding:'16px 16px 100px' }}>
+      <div style={{ fontSize:18, fontWeight:400, letterSpacing:2, color:C.tx, fontFamily:EL, marginBottom:16 }}>入出庫管理</div>
+      {actions.map((a, i) => (
+        <div key={i} onClick={a.action} style={{
+          padding:16, marginBottom:8, background:C.card, border:`1px solid ${C.bd}`,
+          borderRadius:2, cursor:'pointer', display:'flex', gap:14, alignItems:'center',
+        }}>
+          <div style={{ fontSize:20, width:32, textAlign:'center' }}>{a.icon}</div>
+          <div>
+            <div style={{ fontSize:14, fontWeight:500, fontFamily:SR, color:C.tx }}>{a.title}</div>
+            <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>{a.desc}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ===== ItemListPage =====
+function ItemListPage({ title, storeId, categoryId, stores, categories, onBack, onSelect, onAdd }) {
+  const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState('');
+  const debRef = useRef(null);
+  const PAGE_SIZE = 50;
+
+  const fetchItems = useCallback(async () => {
+    setLoading(true);
+    const p = new URLSearchParams();
+    if (storeId) p.set('store', storeId);
+    if (categoryId) p.set('category', String(categoryId));
+    if (q) p.set('q', q);
+    p.set('page', String(page));
+    p.set('limit', String(PAGE_SIZE));
+    try {
+      const r = await fetch('/api/beverages?' + p.toString());
+      const data = await r.json();
+      setItems(data.items || []);
+      setTotal(data.total || 0);
+    } catch(e) { setItems([]); setTotal(0); }
+    setLoading(false);
+  }, [storeId, categoryId, q, page]);
+
+  useEffect(() => { fetchItems(); }, [fetchItems]);
+
+  const onSearch = (val) => {
+    if (debRef.current) clearTimeout(debRef.current);
+    debRef.current = setTimeout(() => { setQ(val); setPage(1); }, 300);
+  };
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const storeColor = {};
+  stores.forEach(s => { storeColor[s.id] = s.color || '#4A6352'; });
+
+  return (
+    <div style={{ minHeight:'100vh', background:C.bg }}>
+      <div style={{ padding:'12px 16px', display:'flex', alignItems:'center', gap:10, borderBottom:`1px solid ${C.bd}` }}>
+        <button onClick={onBack} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}><IcoBack /></button>
+        <div style={{ flex:1, fontSize:15, fontWeight:500, fontFamily:SR, color:C.tx }}>{title || '在庫一覧'}</div>
+        <span style={{ fontSize:12, color:C.sub }}>{total}件</span>
+      </div>
+      <div style={{ padding:'10px 16px' }}>
+        <input onChange={e => onSearch(e.target.value)} placeholder="検索..."
+          style={{ width:'100%', padding:'10px 14px', border:`1px solid ${C.bd}`, borderRadius:10, fontSize:14, fontFamily:F, background:C.card, boxSizing:'border-box', outline:'none' }} />
+      </div>
+      <div style={{ padding:'0 16px 100px' }}>
+        {loading ? (
+          <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>読み込み中...</div>
+        ) : items.length === 0 ? (
+          <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>該当なし</div>
+        ) : items.map(item => (
+          <div key={item.id} onClick={() => onSelect(item)} style={{
+            background:C.card, borderRadius:1, padding:'12px 14px 12px 20px', border:`1px solid ${C.bd}`,
+            marginBottom:5, cursor:'pointer', position:'relative',
+          }}>
+            <div style={{ position:'absolute', left:0, top:4, bottom:4, width:3, background: storeColor[item.store_id] || C.acc, opacity:0.6, borderRadius:'0 2px 2px 0' }} />
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
+                <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>{item.producer || ''}{item.vintage ? ` · ${item.vintage}` : ''}</div>
+                {item.region && <div style={{ fontSize:10, color:C.sub, marginTop:2 }}>{item.region}{item.appellation ? ` · ${item.appellation}` : ''}</div>}
+              </div>
+              <div style={{ flexShrink:0, marginLeft:8, textAlign:'right' }}>
+                <QBadge q={item.quantity} />
+                {item.price != null && <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>{fmt(item.price)}</div>}
+              </div>
+            </div>
+          </div>
+        ))}
+        {totalPages > 1 && (
+          <div style={{ display:'flex', justifyContent:'center', alignItems:'center', gap:16, padding:'16px 0' }}>
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+              style={{ padding:'8px 16px', borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:13, fontFamily:F, cursor: page > 1 ? 'pointer' : 'default', opacity: page > 1 ? 1 : 0.4 }}>前へ</button>
+            <span style={{ fontSize:13, color:C.sub }}>{page} / {totalPages}</span>
+            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+              style={{ padding:'8px 16px', borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:13, fontFamily:F, cursor: page < totalPages ? 'pointer' : 'default', opacity: page < totalPages ? 1 : 0.4 }}>次へ</button>
+          </div>
+        )}
+      </div>
+      <button onClick={onAdd} style={{
+        position:'fixed', bottom:80, right:'calc(50% - 195px)', width:48, height:48, borderRadius:'50%',
+        background:C.acc, color:'#fff', border:'none', fontSize:24, cursor:'pointer',
+        boxShadow:'0 4px 12px rgba(0,0,0,0.15)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:50,
+      }}>+</button>
+    </div>
+  );
+}
+
+// ===== DetailModal =====
+function DetailModal({ item, stores, categories, onClose, onSave, onDelete }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { if (item) setForm({ ...item }); }, [item]);
-
   if (!item) return null;
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -133,59 +465,62 @@ function BevDetail({ item, stores, categories, onClose, onSave, onDelete }) {
     for (const k of ['name','producer','vintage','region','appellation','grape','price','cost_price','quantity','size_ml','notes','category_id','store_id']) {
       if (form[k] !== item[k]) updates[k] = form[k];
     }
-    if (Object.keys(updates).length > 0) {
-      await onSave(item.id, updates);
-    }
-    setEditing(false);
-    setSaving(false);
+    if (Object.keys(updates).length > 0) await onSave(item.id, updates);
+    setEditing(false); setSaving(false);
   };
+
+  const adjustQty = async (delta) => {
+    await onSave(item.id, { quantity: Math.max(0, item.quantity + delta) });
+  };
+
+  const catName = categories.find(c => c.id === item.category_id)?.name || '-';
+  const storeName = stores.find(s => s.id === item.store_id)?.name || item.store_id;
+  const catOpts = categories.map(c => ({ value: c.id, label: (c.parent_id ? '  ' : '') + c.name }));
+  const storeOpts = stores.map(s => ({ value: s.id, label: s.name }));
 
   const Field = ({ label, k, type, opts }) => (
     <div style={{ marginBottom:14 }}>
-      <div style={{ fontSize:11, color:C.sub, marginBottom:4, fontFamily:F }}>{label}</div>
+      <div style={{ fontSize:10, color:C.sub, marginBottom:4, fontFamily:F, textTransform:'uppercase', letterSpacing:0.5 }}>{label}</div>
       {editing ? (
         opts ? (
           <select value={form[k] || ''} onChange={e => set(k, e.target.value === '' ? null : (type === 'number' ? Number(e.target.value) : e.target.value))}
-            style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:6, fontSize:14, fontFamily:F, background:C.card }}>
+            style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F, background:C.card, boxSizing:'border-box' }}>
             <option value="">-</option>
             {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         ) : type === 'textarea' ? (
           <textarea value={form[k] || ''} onChange={e => set(k, e.target.value)}
-            style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:6, fontSize:14, fontFamily:F, minHeight:60, resize:'vertical', boxSizing:'border-box' }} />
+            style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F, minHeight:60, resize:'vertical', boxSizing:'border-box' }} />
         ) : (
           <input type={type || 'text'} value={form[k] ?? ''} onChange={e => set(k, type === 'number' ? (e.target.value === '' ? null : Number(e.target.value)) : e.target.value)}
-            style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:6, fontSize:14, fontFamily:F, boxSizing:'border-box' }} />
+            style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F, boxSizing:'border-box' }} />
         )
       ) : (
-        <div style={{ fontSize:14, color:C.tx, fontFamily: k === 'name' ? SR : F }}>{
+        <div style={{ fontSize:14, color:C.tx, fontFamily: k === 'name' ? EL : F }}>{
           k === 'price' || k === 'cost_price' ? fmt(item[k]) :
           k === 'vintage' ? vintageLabel(item[k]) :
           k === 'size_ml' ? (item[k] ? `${item[k]}ml` : '-') :
-          k === 'store_id' ? (stores.find(s => s.id === item[k])?.name || item[k]) :
-          k === 'category_id' ? (categories.find(c => c.id === item[k])?.name || '-') :
+          k === 'store_id' ? storeName :
+          k === 'category_id' ? catName :
           item[k] || '-'
         }</div>
       )}
     </div>
   );
 
-  const catOpts = categories.map(c => ({ value: c.id, label: (c.parent_id ? '  ' : '') + c.name }));
-  const storeOpts = stores.map(s => ({ value: s.id, label: s.name }));
-
   return (
-    <Overlay open={true} onClose={onClose} title={editing ? '編集' : item.name}>
-      {/* Quantity adjuster */}
+    <BottomSheet open={true} onClose={onClose}>
+      <div style={{ fontSize:18, fontWeight:600, fontFamily:EL, color:C.tx, marginBottom:4 }}>{item.name}</div>
+      <div style={{ fontSize:12, color:C.sub, marginBottom:16 }}>{item.producer || ''}{item.vintage ? ` · ${item.vintage}` : ''}</div>
+
       {!editing && (
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:16, padding:'12px 0 20px', borderBottom:`1px solid ${C.bd}`, marginBottom:16 }}>
-          <button onClick={() => onSave(item.id, { quantity: Math.max(0, item.quantity - 1) })}
-            style={{ width:44, height:44, borderRadius:'50%', border:`1px solid ${C.bd}`, background:C.card, fontSize:20, cursor:'pointer', color:C.tx }}>−</button>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:20, padding:'16px 0', borderTop:`1px solid ${C.bd}`, borderBottom:`1px solid ${C.bd}`, marginBottom:16 }}>
+          <button onClick={() => adjustQty(-1)} style={{ width:40, height:40, borderRadius:'50%', border:`1px solid ${C.bd}`, background:C.card, fontSize:18, cursor:'pointer', color:C.tx, display:'flex', alignItems:'center', justifyContent:'center' }}>−</button>
           <div style={{ textAlign:'center' }}>
             <div style={{ fontSize:32, fontWeight:600, fontFamily:F, color:C.tx }}>{item.quantity}</div>
-            <div style={{ fontSize:11, color:C.sub }}>在庫数</div>
+            <div style={{ fontSize:10, color:C.sub }}>在庫数</div>
           </div>
-          <button onClick={() => onSave(item.id, { quantity: item.quantity + 1 })}
-            style={{ width:44, height:44, borderRadius:'50%', border:`1px solid ${C.bd}`, background:C.card, fontSize:20, cursor:'pointer', color:C.tx }}>+</button>
+          <button onClick={() => adjustQty(1)} style={{ width:40, height:40, borderRadius:'50%', border:`1px solid ${C.bd}`, background:C.card, fontSize:18, cursor:'pointer', color:C.tx, display:'flex', alignItems:'center', justifyContent:'center' }}>+</button>
         </div>
       )}
 
@@ -207,55 +542,54 @@ function BevDetail({ item, stores, categories, onClose, onSave, onDelete }) {
       {editing && <Field label="在庫数" k="quantity" type="number" />}
       <Field label="メモ" k="notes" type="textarea" />
 
-      <div style={{ display:'flex', gap:10, marginTop:20, paddingBottom:20 }}>
+      <div style={{ display:'flex', gap:10, marginTop:20 }}>
         {editing ? (
           <>
-            <button onClick={() => setEditing(false)} style={{ flex:1, padding:'12px', borderRadius:8, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer' }}>キャンセル</button>
-            <button onClick={save} disabled={saving} style={{ flex:1, padding:'12px', borderRadius:8, border:'none', background:C.acc, color:'#fff', fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer' }}>{saving ? '...' : '保存'}</button>
+            <button onClick={() => setEditing(false)} style={{ flex:1, padding:'12px', borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.tx }}>キャンセル</button>
+            <button onClick={save} disabled={saving} style={{ flex:1, padding:'12px', borderRadius:2, border:'none', background:C.acc, color:'#fff', fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer' }}>{saving ? '...' : '保存'}</button>
           </>
         ) : (
           <>
             <button onClick={() => { if (confirm(`「${item.name}」を削除しますか？`)) onDelete(item.id); }}
-              style={{ flex:1, padding:'12px', borderRadius:8, border:`1px solid ${C.red}`, background:'transparent', color:C.red, fontSize:14, fontFamily:F, cursor:'pointer' }}>削除</button>
-            <button onClick={() => setEditing(true)} style={{ flex:1, padding:'12px', borderRadius:8, border:'none', background:C.acc, color:'#fff', fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer' }}>編集</button>
+              style={{ flex:1, padding:'12px', borderRadius:2, border:`1px solid ${C.red}`, background:'transparent', color:C.red, fontSize:14, fontFamily:F, cursor:'pointer' }}>削除</button>
+            <button onClick={() => setEditing(true)} style={{ flex:1, padding:'12px', borderRadius:2, border:'none', background:C.acc, color:'#fff', fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer' }}>編集</button>
           </>
         )}
       </div>
-    </Overlay>
+    </BottomSheet>
   );
 }
 
-// ===== Add Item Form =====
-function AddForm({ stores, categories, onClose, onAdd }) {
+// ===== AddItemForm =====
+function AddItemForm({ stores, categories, onClose, onAdd }) {
   const [form, setForm] = useState({ store_id: stores[0]?.id || '', quantity: 0, size_ml: 750 });
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const save = async () => {
     if (!form.name || !form.store_id) return;
-    setSaving(true);
-    await onAdd(form);
-    setSaving(false);
+    setSaving(true); await onAdd(form); setSaving(false);
   };
 
   const Inp = ({ label, k, type, ph, opts }) => (
     <div style={{ marginBottom:14 }}>
-      <div style={{ fontSize:11, color:C.sub, marginBottom:4, fontFamily:F }}>{label}</div>
+      <div style={{ fontSize:10, color:C.sub, marginBottom:4, fontFamily:F, textTransform:'uppercase', letterSpacing:0.5 }}>{label}</div>
       {opts ? (
         <select value={form[k] || ''} onChange={e => set(k, e.target.value === '' ? null : (type === 'number' ? Number(e.target.value) : e.target.value))}
-          style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:6, fontSize:14, fontFamily:F, boxSizing:'border-box' }}>
+          style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F, boxSizing:'border-box' }}>
           <option value="">-</option>
           {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       ) : (
         <input type={type || 'text'} value={form[k] ?? ''} placeholder={ph} onChange={e => set(k, type === 'number' ? (e.target.value === '' ? null : Number(e.target.value)) : e.target.value)}
-          style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:6, fontSize:14, fontFamily:F, boxSizing:'border-box' }} />
+          style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F, boxSizing:'border-box' }} />
       )}
     </div>
   );
 
   return (
-    <Overlay open={true} onClose={onClose} title="新規追加">
+    <BottomSheet open={true} onClose={onClose}>
+      <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:16 }}>新規追加</div>
       <Inp label="ワイン名 *" k="name" ph="例: Meursault 1er Cru Les Perrières" />
       <Inp label="生産者" k="producer" ph="例: Domaine Roulot" />
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
@@ -273,93 +607,43 @@ function AddForm({ stores, categories, onClose, onAdd }) {
       </div>
       <Inp label="在庫数" k="quantity" type="number" />
       <div style={{ marginBottom:14 }}>
-        <div style={{ fontSize:11, color:C.sub, marginBottom:4, fontFamily:F }}>メモ</div>
+        <div style={{ fontSize:10, color:C.sub, marginBottom:4, fontFamily:F, textTransform:'uppercase', letterSpacing:0.5 }}>メモ</div>
         <textarea value={form.notes || ''} onChange={e => set('notes', e.target.value)}
-          style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:6, fontSize:14, fontFamily:F, minHeight:60, resize:'vertical', boxSizing:'border-box' }} />
+          style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F, minHeight:60, resize:'vertical', boxSizing:'border-box' }} />
       </div>
       <button onClick={save} disabled={saving || !form.name || !form.store_id}
-        style={{ width:'100%', padding:'14px', borderRadius:8, border:'none', background: (form.name && form.store_id) ? C.acc : C.bd, color:'#fff', fontSize:15, fontFamily:F, fontWeight:600, cursor:'pointer', marginBottom:20 }}>
+        style={{ width:'100%', padding:'14px', borderRadius:2, border:'none', background: (form.name && form.store_id) ? C.acc : C.bd, color:'#fff', fontSize:15, fontFamily:F, fontWeight:600, cursor:'pointer' }}>
         {saving ? '保存中...' : '追加'}
       </button>
-    </Overlay>
+    </BottomSheet>
   );
 }
 
 // ===== Main App =====
 export default function App() {
   const { ok, login, logout } = useAuth();
-  const [lang] = useState('ja');
-  const t = T[lang];
-
-  // Data
   const [stores, setStores] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [items, setItems] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-
-  // Filters
-  const [storeFilter, setStoreFilter] = useState(null);
-  const [catFilter, setCatFilter] = useState(null);
-  const [query, setQuery] = useState('');
-  const [page, setPage] = useState(1);
-  const [stockFilter, setStockFilter] = useState(null); // null=all, true=in-stock
-
-  // UI
+  const [tab, setTab] = useState('home');
+  const [subView, setSubView] = useState(null);
   const [selected, setSelected] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [toast, setToast] = useState('');
-  const searchRef = useRef(null);
-  const debounceRef = useRef(null);
-  const PAGE_SIZE = 50;
 
-  // Fetch stores & categories on mount
   useEffect(() => {
     if (!ok) return;
     fetch('/api/stores').then(r => r.json()).then(setStores).catch(() => {});
     fetch('/api/categories').then(r => r.json()).then(setCategories).catch(() => {});
   }, [ok]);
 
-  // Fetch items
-  const fetchItems = useCallback(async () => {
-    setLoading(true);
-    const p = new URLSearchParams();
-    if (storeFilter) p.set('store', storeFilter);
-    if (catFilter) p.set('category', String(catFilter));
-    if (query) p.set('q', query);
-    if (stockFilter !== null) p.set('stock', String(stockFilter));
-    p.set('page', String(page));
-    p.set('limit', String(PAGE_SIZE));
-
-    try {
-      const r = await fetch('/api/beverages?' + p.toString());
-      const data = await r.json();
-      setItems(data.items || []);
-      setTotal(data.total || 0);
-    } catch (e) {
-      console.error(e);
-      setItems([]);
-      setTotal(0);
-    }
-    setLoading(false);
-  }, [storeFilter, catFilter, query, page, stockFilter]);
-
-  useEffect(() => { if (ok) fetchItems(); }, [ok, fetchItems]);
-
-  // Debounced search
-  const onSearch = (val) => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      setQuery(val);
-      setPage(1);
-    }, 300);
+  const navigate = (type, params = {}) => {
+    if (type === 'add') { setShowAdd(true); return; }
+    setSubView({ type, params });
   };
+  const goBack = () => setSubView(null);
 
-  // CRUD operations
   const saveItem = async (id, updates) => {
     await fetch(`/api/beverages/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) });
-    await fetchItems();
-    // Refresh selected item
     if (selected?.id === id) {
       const r = await fetch(`/api/beverages/${id}`);
       setSelected(await r.json());
@@ -370,135 +654,51 @@ export default function App() {
   const deleteItem = async (id) => {
     await fetch(`/api/beverages/${id}`, { method: 'DELETE' });
     setSelected(null);
-    await fetchItems();
     setToast('削除しました');
   };
 
   const addItem = async (form) => {
     await fetch('/api/beverages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
     setShowAdd(false);
-    setPage(1);
-    await fetchItems();
     setToast('追加しました');
   };
 
-  // Category tree helpers
-  const topCats = categories.filter(c => !c.parent_id);
-  const subCats = (pid) => categories.filter(c => c.parent_id === pid);
-  const totalPages = Math.ceil(total / PAGE_SIZE);
-
   if (!ok) return <LoginScreen onLogin={login} />;
+
+  const renderView = () => {
+    if (subView?.type === 'list-items') {
+      return <ItemListPage title={subView.params.title} storeId={subView.params.store} categoryId={subView.params.category}
+        stores={stores} categories={categories} onBack={goBack} onSelect={setSelected} onAdd={() => setShowAdd(true)} />;
+    }
+    switch (tab) {
+      case 'home': return <HomeView stores={stores} categories={categories} onNavigate={navigate} />;
+      case 'search': return <GlobalSearch stores={stores} onSelect={setSelected} />;
+      case 'stock': return <StockManager onNavigate={navigate} />;
+      case 'list': return <ItemListPage title="全在庫一覧" stores={stores} categories={categories} onBack={() => setTab('home')} onSelect={setSelected} onAdd={() => setShowAdd(true)} />;
+      case 'settings': return (
+        <div style={{ padding:'16px 16px 100px' }}>
+          <div style={{ fontSize:18, fontWeight:400, letterSpacing:2, color:C.tx, fontFamily:EL, marginBottom:16 }}>設定</div>
+          <button onClick={logout} style={{ width:'100%', padding:14, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.red }}>ログアウト</button>
+        </div>
+      );
+      default: return null;
+    }
+  };
 
   return (
     <div style={{ maxWidth:430, margin:'0 auto', minHeight:'100vh', background:C.bg, fontFamily:F, position:'relative' }}>
-      {/* Header */}
-      <div style={{ position:'sticky', top:0, zIndex:100, background:C.bg, padding:'12px 16px 0' }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
-          <div style={{ fontSize:15, fontWeight:600, letterSpacing:2, color:C.tx, fontFamily:SR }}>WINE COMPASS</div>
-          <button onClick={logout} style={{ background:'none', border:'none', fontSize:12, color:C.sub, cursor:'pointer', fontFamily:F }}>{t.logout}</button>
-        </div>
-
-        {/* Search */}
-        <div style={{ position:'relative', marginBottom:10 }}>
-          <input ref={searchRef} type="text" placeholder={t.search}
-            onChange={e => onSearch(e.target.value)}
-            style={{ width:'100%', padding:'10px 12px 10px 36px', border:`1px solid ${C.bd}`, borderRadius:8, fontSize:14, fontFamily:F, background:C.card, boxSizing:'border-box', outline:'none' }} />
-          <span style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', fontSize:16, color:C.sub }}>🔍</span>
-        </div>
-
-        {/* Store pills */}
-        <div style={{ display:'flex', gap:6, overflowX:'auto', paddingBottom:8, scrollbarWidth:'none' }}>
-          <Pill label={t.allStores} active={!storeFilter} onClick={() => { setStoreFilter(null); setPage(1); }} />
-          {stores.map(s => <Pill key={s.id} label={s.name} active={storeFilter === s.id} onClick={() => { setStoreFilter(s.id); setPage(1); }} color={s.color} />)}
-        </div>
-
-        {/* Category tabs */}
-        <div style={{ display:'flex', gap:6, overflowX:'auto', paddingBottom:8, scrollbarWidth:'none' }}>
-          <Pill label={t.allCategories} active={!catFilter} onClick={() => { setCatFilter(null); setPage(1); }} small />
-          {topCats.map(c => <Pill key={c.id} label={c.name} active={catFilter === c.id} onClick={() => { setCatFilter(c.id); setPage(1); }} small />)}
-        </div>
-
-        {/* Sub-category chips */}
-        {catFilter && subCats(catFilter).length > 0 && (
-          <div style={{ display:'flex', gap:6, overflowX:'auto', paddingBottom:8, scrollbarWidth:'none' }}>
-            {subCats(catFilter).map(c => <Pill key={c.id} label={c.name} active={catFilter === c.id} onClick={() => { setCatFilter(c.id); setPage(1); }} small accent />)}
-          </div>
-        )}
-
-        {/* Result count + stock filter */}
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'4px 0 8px' }}>
-          <span style={{ fontSize:12, color:C.sub }}>{total} {t.items}</span>
-          <div style={{ display:'flex', gap:6 }}>
-            <Pill label={t.inStock} active={stockFilter === true} onClick={() => { setStockFilter(stockFilter === true ? null : true); setPage(1); }} small accent />
-          </div>
-        </div>
-      </div>
-
-      {/* Item List */}
-      <div style={{ padding:'0 16px 100px' }}>
-        {loading ? (
-          <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>{t.loading}</div>
-        ) : items.length === 0 ? (
-          <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>{t.noResults}</div>
-        ) : (
-          items.map(item => <BevCard key={item.id} item={item} onClick={setSelected} />)
-        )}
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div style={{ display:'flex', justifyContent:'center', alignItems:'center', gap:16, padding:'16px 0' }}>
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
-              style={{ padding:'8px 16px', borderRadius:6, border:`1px solid ${C.bd}`, background:C.card, fontSize:13, fontFamily:F, cursor: page > 1 ? 'pointer' : 'default', opacity: page > 1 ? 1 : 0.4 }}>{t.prev}</button>
-            <span style={{ fontSize:13, color:C.sub }}>{page} / {totalPages}</span>
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
-              style={{ padding:'8px 16px', borderRadius:6, border:`1px solid ${C.bd}`, background:C.card, fontSize:13, fontFamily:F, cursor: page < totalPages ? 'pointer' : 'default', opacity: page < totalPages ? 1 : 0.4 }}>{t.next}</button>
-          </div>
-        )}
-      </div>
-
-      {/* FAB - Add button */}
-      <button onClick={() => setShowAdd(true)} style={{
-        position:'fixed', bottom:24, right: 'calc(50% - 195px)', width:56, height:56, borderRadius:'50%',
-        background:C.acc, color:'#fff', border:'none', fontSize:28, cursor:'pointer',
-        boxShadow:'0 4px 12px rgba(0,0,0,0.15)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:50,
-      }}>+</button>
-
-      {/* Detail overlay */}
-      {selected && <BevDetail item={selected} stores={stores} categories={categories} onClose={() => setSelected(null)} onSave={saveItem} onDelete={deleteItem} />}
-
-      {/* Add form */}
-      {showAdd && <AddForm stores={stores} categories={categories} onClose={() => setShowAdd(false)} onAdd={addItem} />}
-
-      {/* Toast */}
+      {renderView()}
+      {!subView && <BottomNav tab={tab} onTab={(t) => { setTab(t); setSubView(null); }} />}
+      {selected && <DetailModal item={selected} stores={stores} categories={categories} onClose={() => setSelected(null)} onSave={saveItem} onDelete={deleteItem} />}
+      {showAdd && <AddItemForm stores={stores} categories={categories} onClose={() => setShowAdd(false)} onAdd={addItem} />}
       <Toast msg={toast} onClose={() => setToast('')} />
-
-      {/* Global animations */}
       <style>{`
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        @keyframes slideDown { from { transform: translateY(0); } to { transform: translateY(100%); } }
         * { -webkit-tap-highlight-color: transparent; }
         ::-webkit-scrollbar { display: none; }
-        input:focus, select:focus, textarea:focus { border-color: ${C.acc} !important; }
+        input:focus, select:focus, textarea:focus { border-color: ${C.acc} !important; outline: none; }
       `}</style>
     </div>
-  );
-}
-
-// ===== Pill Button =====
-function Pill({ label, active, onClick, color, small, accent }) {
-  return (
-    <button onClick={onClick} style={{
-      padding: small ? '4px 10px' : '6px 14px',
-      borderRadius: 16,
-      border: `1px solid ${active ? (accent ? C.acc : (color || C.tx)) : C.bd}`,
-      background: active ? (accent ? C.acc : (color || C.tx)) : C.card,
-      color: active ? '#fff' : C.sub,
-      fontSize: small ? 11 : 12,
-      fontFamily: F,
-      fontWeight: 500,
-      cursor: 'pointer',
-      whiteSpace: 'nowrap',
-      flexShrink: 0,
-      transition: 'all 0.2s',
-    }}>{label}</button>
   );
 }
