@@ -1,0 +1,16 @@
+{
+  "name": "Wine Compass",
+  "short_name": "WC",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F6F4F0",
+  "theme_color": "#D4AF37",
+  "icons": [
+    {
+      "src": "/wc-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
