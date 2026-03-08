@@ -21,10 +21,11 @@ function LoginScreen({ onLogin }) {
   const [err, setErr] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const submit = async () => {
-    if (!pin || loading) return;
+  const submit = async (pinOverride) => {
+    const p = pinOverride || pin;
+    if (!p || loading) return;
     setLoading(true); setErr(false);
-    const ok = await onLogin(pin);
+    const ok = await onLogin(p);
     if (!ok) { setErr(true); setPin(''); }
     setLoading(false);
   };
@@ -51,7 +52,7 @@ function LoginScreen({ onLogin }) {
             else if (k && pin.length < 4) {
               const next = pin + k;
               setPin(next);
-              if (next.length === 4) setTimeout(() => { setPin(next); submit(); }, 100);
+              if (next.length === 4) setTimeout(() => { submit(next); }, 100);
             }
           }} disabled={!k} style={{
             width:72, height:72, borderRadius:'50%', border:`1px solid ${C.bd}`, background: k ? C.card : 'transparent',
