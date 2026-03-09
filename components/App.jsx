@@ -190,7 +190,7 @@ const fmtY = (n) => {
 };
 
 // ===== HomeView — matches Beverage Compass UI =====
-function HomeView({ stores, categories, onNavigate, onWineList }) {
+function HomeView({ stores, categories, onNavigate, onWineList, onWineListPrint }) {
   const [openSection, setOpenSection] = useState(null);
   const [stats, setStats] = useState(null);
   const [wlStats, setWlStats] = useState(null);
@@ -368,11 +368,18 @@ function HomeView({ stores, categories, onNavigate, onWineList }) {
                       ) : (
                         <div style={{ fontSize:12, color:C.sub, textAlign:'center', padding:'8px 0' }}>リストにアイテムなし</div>
                       )}
-                      <button onClick={() => onWineList(store.id)} style={{
-                        width:'100%', marginTop:10, padding:'10px', borderRadius:2,
-                        border:`1px solid ${C.acc}`, background:'transparent',
-                        fontSize:12, fontFamily:F, color:C.acc, cursor:'pointer', fontWeight:600,
-                      }}>リスト管理</button>
+                      <div style={{ display:'flex', gap:6, marginTop:10 }}>
+                        <button onClick={() => onWineList(store.id)} style={{
+                          flex:1, padding:'10px', borderRadius:2,
+                          border:`1px solid ${C.acc}`, background:'transparent',
+                          fontSize:12, fontFamily:F, color:C.acc, cursor:'pointer', fontWeight:600,
+                        }}>リスト管理</button>
+                        <button onClick={() => onWineListPrint(store.id)} style={{
+                          flex:1, padding:'10px', borderRadius:2,
+                          border:`1px solid ${C.tx}`, background:C.tx,
+                          fontSize:12, fontFamily:F, color:'#fff', cursor:'pointer', fontWeight:500,
+                        }}>ワインリスト印刷</button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -921,6 +928,283 @@ function PhotoRemoval({ stores, onClose, onRemoved }) {
         </div>
       )}
     </BottomSheet>
+  );
+}
+
+// ===== WineListPrint =====
+function WineListPrint({ storeId, stores, onBack }) {
+  const [sections, setSections] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [allStoreData, setAllStoreData] = useState({});
+  const [selectedStore, setSelectedStore] = useState(storeId || null);
+  const [printMode, setPrintMode] = useState(false);
+
+  // Fetch wine list items for all stores or specific store
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      if (storeId) {
+        const r = await fetch(`/api/wine-list-items?store=${storeId}`);
+        const d = await r.json();
+        setSections(d.sections || []);
+        setAllStoreData({ [storeId]: d.sections || [] });
+      } else {
+        // Fetch all stores
+        const storeIds = stores.map(s => s.id);
+        const results = {};
+        await Promise.all(storeIds.map(async (sid) => {
+          try {
+            const r = await fetch(`/api/wine-list-items?store=${sid}`);
+            const d = await r.json();
+            if (d.sections && d.sections.length > 0) results[sid] = d.sections;
+          } catch(e) {}
+        }));
+        setAllStoreData(results);
+        const first = Object.keys(results)[0];
+        if (first && !selectedStore) setSelectedStore(first);
+        if (selectedStore && results[selectedStore]) {
+          setSections(results[selectedStore]);
+        } else if (first) {
+          setSections(results[first] || []);
+        }
+      }
+    } catch(e) { setSections([]); }
+    setLoading(false);
+  }, [storeId, stores]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => {
+    if (selectedStore && allStoreData[selectedStore]) {
+      setSections(allStoreData[selectedStore]);
+    }
+  }, [selectedStore, allStoreData]);
+
+  const store = stores.find(s => s.id === selectedStore);
+  const storeName = store?.name || selectedStore || '';
+  const storeNameEn = store?.name_en || '';
+  const availableStores = Object.keys(allStoreData);
+
+  const handlePrint = () => {
+    setPrintMode(true);
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => setPrintMode(false), 500);
+    }, 100);
+  };
+
+  if (loading) {
+    return (
+      <div style={{ padding:40, textAlign:'center', color:C.sub, fontFamily:F }}>
+        <div style={{ animation:'spin 1s linear infinite', width:20, height:20, border:`2px solid ${C.bd}`, borderTop:`2px solid ${C.acc}`, borderRadius:'50%', margin:'0 auto 12px' }} />
+        読み込み中...
+      </div>
+    );
+  }
+
+  // Print mode: render clean printable layout
+  if (printMode) {
+    return (
+      <div className="wine-list-print" style={{ fontFamily:"'Cormorant Garamond','DM Sans',serif", maxWidth:700, margin:'0 auto', padding:'40px 32px', background:'#fff' }}>
+        <style>{`
+          @media print {
+            body { margin:0; padding:0; }
+            .wine-list-print { max-width:100% !important; padding:20px 24px !important; }
+            .no-print { display:none !important; }
+            @page { margin: 15mm 12mm; size: A4; }
+          }
+        `}</style>
+        {/* Cover */}
+        <div style={{ textAlign:'center', marginBottom:48, pageBreakAfter:'always' }}>
+          <div style={{ height:'35vh' }} />
+          <div style={{ fontSize:11, letterSpacing:6, color:'#B0A89A', fontFamily:"'DM Sans',sans-serif", marginBottom:16 }}>WINE LIST</div>
+          <div style={{ width:40, height:1, background:'#D4AF37', margin:'0 auto 24px' }} />
+          <div style={{ fontSize:32, fontWeight:300, letterSpacing:6, color:'#2A2520', fontFamily:"'Cormorant Garamond',serif" }}>
+            {storeName}
+          </div>
+          {storeNameEn && (
+            <div style={{ fontSize:14, fontWeight:300, letterSpacing:3, color:'#A09A8C', marginTop:8, fontFamily:"'Cormorant Garamond',serif" }}>
+              {storeNameEn}
+            </div>
+          )}
+          <div style={{ fontSize:10, color:'#C0B8A8', marginTop:32, fontFamily:"'DM Sans',sans-serif" }}>
+            Price includes tax
+          </div>
+        </div>
+
+        {/* Sections */}
+        {sections.map((sec, si) => (
+          <div key={si} style={{ marginBottom:36, pageBreakInside:'avoid' }}>
+            {/* Section Header */}
+            <div style={{ textAlign:'center', marginBottom:20 }}>
+              <div style={{ fontSize:18, fontWeight:400, letterSpacing:4, color:'#2A2520', fontFamily:"'Cormorant Garamond',serif" }}>
+                {sec.section_en || sec.section}
+              </div>
+              <div style={{ fontSize:11, color:'#A09A8C', letterSpacing:2, marginTop:4, fontFamily:"'Shippori Mincho',serif" }}>
+                {sec.section}
+              </div>
+              <div style={{ width:24, height:1, background:'#D4AF37', margin:'8px auto 0' }} />
+            </div>
+
+            {/* Items */}
+            {sec.items.map((item, ii) => (
+              <div key={ii} style={{ marginBottom:10, paddingBottom:8, borderBottom:'1px solid #F0EDE8' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline' }}>
+                  <div style={{ flex:1, marginRight:12 }}>
+                    <span style={{ fontSize:13, fontWeight:400, color:'#2A2520', fontFamily:"'Cormorant Garamond',serif", letterSpacing:0.5 }}>
+                      {item.vintage && <span style={{ color:'#A09A8C', marginRight:6 }}>{item.vintage}</span>}
+                      {item.name_en}
+                    </span>
+                    {item.producer_en && (
+                      <span style={{ fontSize:11, color:'#B0A89A', fontFamily:"'Cormorant Garamond',serif", marginLeft:6 }}>
+                        / {item.producer_en}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize:13, fontWeight:400, color:'#2A2520', fontFamily:"'DM Sans',sans-serif", whiteSpace:'nowrap' }}>
+                    {item.sell_price_incl ? `¥${item.sell_price_incl.toLocaleString()}` : ''}
+                  </div>
+                </div>
+                {item.name_jp && (
+                  <div style={{ fontSize:10, color:'#A09A8C', fontFamily:"'Shippori Mincho',serif", marginTop:2, letterSpacing:0.5 }}>
+                    {item.name_jp}
+                    {item.producer_jp && ` / ${item.producer_jp}`}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Normal mode: preview with controls
+  return (
+    <div style={{ minHeight:'100vh', background:C.bg, fontFamily:F }}>
+      {/* Header */}
+      <div className="no-print" style={{ position:'sticky', top:0, zIndex:10, background:C.bg, borderBottom:`1px solid ${C.bd}`, padding:'12px 16px' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <button onClick={onBack} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}><IcoBack /></button>
+            <div>
+              <div style={{ fontSize:15, fontWeight:400, letterSpacing:1, color:C.tx, fontFamily:EL }}>Wine List</div>
+              <div style={{ fontSize:10, color:C.sub }}>ワインリスト印刷</div>
+            </div>
+          </div>
+          <button onClick={handlePrint} style={{
+            padding:'8px 20px', borderRadius:2, border:'none',
+            background:C.tx, color:'#fff', fontSize:12, fontFamily:F,
+            cursor:'pointer', fontWeight:500, letterSpacing:1,
+          }}>
+            印刷
+          </button>
+        </div>
+
+        {/* Store selector */}
+        {availableStores.length > 1 && (
+          <div style={{ display:'flex', gap:6, marginTop:10, overflowX:'auto', paddingBottom:4 }}>
+            {availableStores.map(sid => {
+              const s = stores.find(st => st.id === sid);
+              const active = sid === selectedStore;
+              return (
+                <button key={sid} onClick={() => setSelectedStore(sid)} style={{
+                  padding:'6px 14px', borderRadius:20, border:`1px solid ${active ? C.acc : C.bd}`,
+                  background: active ? C.acc : 'transparent', color: active ? '#fff' : C.sub,
+                  fontSize:11, fontFamily:F, cursor:'pointer', whiteSpace:'nowrap', fontWeight: active ? 600 : 400,
+                }}>
+                  {s?.name || sid}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Preview */}
+      <div style={{ padding:'16px', maxWidth:700, margin:'0 auto' }}>
+        {sections.length === 0 ? (
+          <div style={{ textAlign:'center', padding:40, color:C.sub }}>
+            <div style={{ fontSize:13, marginBottom:8 }}>このストアのワインリストデータがありません</div>
+            <div style={{ fontSize:11 }}>scripts/import-wine-list.js でインポートしてください</div>
+          </div>
+        ) : (
+          <>
+            {/* Store title */}
+            <div style={{ textAlign:'center', marginBottom:32, paddingTop:8 }}>
+              <div style={{ fontSize:11, letterSpacing:5, color:C.sub, fontFamily:F, marginBottom:8 }}>WINE LIST</div>
+              <div style={{ width:30, height:1, background:C.gold, margin:'0 auto 16px' }} />
+              <div style={{ fontSize:26, fontWeight:300, letterSpacing:4, color:C.tx, fontFamily:EL }}>
+                {storeName}
+              </div>
+              {storeNameEn && (
+                <div style={{ fontSize:12, fontWeight:300, letterSpacing:2, color:C.sub, marginTop:4, fontFamily:EL }}>
+                  {storeNameEn}
+                </div>
+              )}
+              <div style={{ fontSize:10, color:'#C0B8A8', marginTop:16, fontFamily:F }}>
+                {sections.reduce((acc, s) => acc + s.items.length, 0)} items · Price includes tax
+              </div>
+            </div>
+
+            {/* Sections */}
+            {sections.map((sec, si) => (
+              <div key={si} style={{ marginBottom:28 }}>
+                {/* Section Header */}
+                <div style={{ textAlign:'center', marginBottom:14 }}>
+                  <div style={{ fontSize:16, fontWeight:400, letterSpacing:3, color:C.tx, fontFamily:EL }}>
+                    {sec.section_en || sec.section}
+                  </div>
+                  <div style={{ fontSize:10, color:C.sub, letterSpacing:1.5, marginTop:3, fontFamily:SR }}>
+                    {sec.section}
+                  </div>
+                  <div style={{ width:20, height:1, background:C.gold, margin:'6px auto 0' }} />
+                </div>
+
+                {/* Items */}
+                {sec.items.map((item, ii) => (
+                  <div key={ii} style={{
+                    marginBottom:6, paddingBottom:6,
+                    borderBottom:`1px solid ${C.bd}`,
+                  }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline' }}>
+                      <div style={{ flex:1, marginRight:8 }}>
+                        <span style={{ fontSize:13, fontWeight:400, color:C.tx, fontFamily:EL, letterSpacing:0.3 }}>
+                          {item.vintage && <span style={{ color:C.sub, marginRight:5, fontSize:12 }}>{item.vintage}</span>}
+                          {item.name_en}
+                        </span>
+                        {item.producer_en && (
+                          <span style={{ fontSize:10.5, color:'#B0A89A', fontFamily:EL, marginLeft:5 }}>
+                            / {item.producer_en}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize:12, fontWeight:500, color:C.tx, fontFamily:F, whiteSpace:'nowrap' }}>
+                        {item.sell_price_incl ? `¥${item.sell_price_incl.toLocaleString()}` : ''}
+                      </div>
+                    </div>
+                    {item.name_jp && (
+                      <div style={{ fontSize:10, color:C.sub, fontFamily:SR, marginTop:1.5, letterSpacing:0.3 }}>
+                        {item.name_jp}
+                        {item.producer_jp && ` / ${item.producer_jp}`}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+
+      <style>{`
+        @media print {
+          body { margin:0 !important; padding:0 !important; }
+          .no-print { display:none !important; }
+          @page { margin: 15mm 12mm; size: A4; }
+        }
+      `}</style>
+    </div>
   );
 }
 
@@ -1711,6 +1995,9 @@ export default function App() {
   const openWineList = (storeId, categoryId) => {
     setSubView({ type: 'wine-list', params: { store: storeId, category: categoryId } });
   };
+  const openWineListPrint = (storeId) => {
+    setSubView({ type: 'wine-list-print', params: storeId ? { store: storeId } : {} });
+  };
 
   const saveItem = async (id, updates) => {
     await fetch(`/api/beverages/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) });
@@ -1744,8 +2031,11 @@ export default function App() {
       return <WineListManager storeId={subView.params.store} categoryId={subView.params.category}
         stores={stores} categories={categories} onBack={goBack} onRefreshHome={() => setHomeKey(k => k + 1)} />;
     }
+    if (subView?.type === 'wine-list-print') {
+      return <WineListPrint storeId={subView.params?.store} stores={stores} onBack={goBack} />;
+    }
     switch (tab) {
-      case 'home': return <HomeView key={homeKey} stores={stores} categories={categories} onNavigate={navigate} onWineList={openWineList} />;
+      case 'home': return <HomeView key={homeKey} stores={stores} categories={categories} onNavigate={navigate} onWineList={openWineList} onWineListPrint={openWineListPrint} />;
       case 'search': return <GlobalSearch stores={stores} onSelect={setSelected} />;
       case 'stock': return <StockManager stores={stores} onNavigate={navigate} onImport={() => setShowImport(true)} onPhotoImport={() => setShowPhotoImport(true)} onPhotoRemoval={() => setShowPhotoRemoval(true)} />;
       case 'list': return <ItemListPage title="全在庫一覧" stores={stores} categories={categories} onBack={() => setTab('home')} onSelect={setSelected} onAdd={() => setShowAdd(true)} />;
