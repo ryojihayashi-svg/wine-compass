@@ -27,7 +27,7 @@ export async function GET() {
 
   if (error) {
     // Table might not exist
-    if (error.message.includes('does not exist') || error.code === '42P01') {
+    if (error.message.includes('does not exist') || error.message.includes('schema cache') || error.code === '42P01') {
       return NextResponse.json({ stores: {}, total: 0 });
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
