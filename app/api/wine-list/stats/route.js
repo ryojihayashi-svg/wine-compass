@@ -16,44 +16,34 @@ export async function GET() {
     .select('id, name, name_en, parent_id, sort_order')
     .order('sort_order');
 
-  // Get all active wine list items with beverage data
+  // Step 1: Get all active wine list items (NO join — avoids schema cache issues)
   const { data: wlItems, error } = await supabase
     .from('wc_wine_list')
-    .select(`
-      id, store_id, sell_price,
-      wc_beverages ( category_id, quantity, price )
-    `)
+    .select('id, store_id, beverage_id, sell_price')
     .eq('is_active', true);
 
   if (error) {
-    // Table might not exist — return empty gracefully
-    if (error.message.includes('does not exist') || error.code === '42P01') {
+    if (error.message.includes('does not exist') || error.code === '42P01' || error.message.includes('schema cache')) {
       return NextResponse.json({ stores: {}, total: 0 });
     }
-    // For schema cache errors, try again with simpler query
-    if (error.message.includes('schema cache')) {
-      const { data: simpleData, error: simpleErr } = await supabase
-        .from('wc_wine_list')
-        .select('id, store_id, sell_price, beverage_id')
-        .eq('is_active', true);
-
-      if (simpleErr) return NextResponse.json({ stores: {}, total: 0 });
-
-      // Simple stats without category breakdown
-      const storeGroups = {};
-      for (const item of (simpleData || [])) {
-        const sid = item.store_id || '_none';
-        if (!storeGroups[sid]) storeGroups[sid] = { total: 0, totalValue: 0, categories: {} };
-        storeGroups[sid].total++;
-        storeGroups[sid].totalValue += (item.sell_price || 0);
-      }
-      return NextResponse.json({
-        stores: storeGroups,
-        total: (simpleData || []).length,
-        totalValue: (simpleData || []).reduce((s, i) => s + (i.sell_price || 0), 0),
-      });
-    }
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (!wlItems || wlItems.length === 0) {
+    return NextResponse.json({ stores: {}, total: 0, totalValue: 0 });
+  }
+
+  // Step 2: Get beverage data for category mapping
+  const bevIds = [...new Set(wlItems.map(i => i.beverage_id))];
+  const { data: beverages } = await supabase
+    .from('wc_beverages')
+    .select('id, category_id, price')
+    .in('id', bevIds);
+
+  // Build beverage lookup map
+  const bevMap = {};
+  for (const b of (beverages || [])) {
+    bevMap[b.id] = b;
   }
 
   // Build parent-child map
@@ -67,7 +57,7 @@ export async function GET() {
 
   // Group by store
   const storeItems = {};
-  for (const item of (wlItems || [])) {
+  for (const item of wlItems) {
     const sid = item.store_id || '_none';
     if (!storeItems[sid]) storeItems[sid] = [];
     storeItems[sid].push(item);
@@ -79,10 +69,11 @@ export async function GET() {
     let total = 0, totalValue = 0;
 
     for (const item of items) {
-      const cid = item.wc_beverages?.category_id || 0;
+      const bev = bevMap[item.beverage_id];
+      const cid = bev?.category_id || 0;
       if (!directCounts[cid]) directCounts[cid] = { count: 0, value: 0 };
       directCounts[cid].count++;
-      const price = item.sell_price || item.wc_beverages?.price || 0;
+      const price = item.sell_price || bev?.price || 0;
       directCounts[cid].value += price;
       total++;
       totalValue += price;
@@ -113,8 +104,11 @@ export async function GET() {
   }
 
   // Global totals
-  const globalTotal = (wlItems || []).length;
-  const globalValue = (wlItems || []).reduce((s, i) => s + (i.sell_price || i.wc_beverages?.price || 0), 0);
+  const globalTotal = wlItems.length;
+  const globalValue = wlItems.reduce((s, i) => {
+    const bev = bevMap[i.beverage_id];
+    return s + (i.sell_price || bev?.price || 0);
+  }, 0);
 
   return NextResponse.json({
     stores,
