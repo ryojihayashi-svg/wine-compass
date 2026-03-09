@@ -22,10 +22,10 @@ export async function GET(req) {
       .order('sort_order');
 
     // Get all items (with price for value calc)
-    // Supabase default limit is 1000 — fetch all with pagination
+    // Supabase PostgREST limits responses to 1000 rows — paginate
     let allItems = [];
     let from = 0;
-    const PAGE = 5000;
+    const PAGE = 1000;
 
     while (true) {
       let query = supabase
