@@ -11,7 +11,7 @@ const SQL = `
 CREATE TABLE IF NOT EXISTS wc_wine_list (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   store_id TEXT NOT NULL REFERENCES wc_stores(id),
-  beverage_id UUID NOT NULL REFERENCES wc_beverages(id),
+  beverage_id BIGINT NOT NULL REFERENCES wc_beverages(id),
   sell_price INTEGER,
   sort_order INTEGER DEFAULT 0,
   is_active BOOLEAN DEFAULT true,

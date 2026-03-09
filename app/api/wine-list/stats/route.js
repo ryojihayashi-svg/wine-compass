@@ -26,9 +26,32 @@ export async function GET() {
     .eq('is_active', true);
 
   if (error) {
-    // Table might not exist
-    if (error.message.includes('does not exist') || error.message.includes('schema cache') || error.code === '42P01') {
+    // Table might not exist — return empty gracefully
+    if (error.message.includes('does not exist') || error.code === '42P01') {
       return NextResponse.json({ stores: {}, total: 0 });
+    }
+    // For schema cache errors, try again with simpler query
+    if (error.message.includes('schema cache')) {
+      const { data: simpleData, error: simpleErr } = await supabase
+        .from('wc_wine_list')
+        .select('id, store_id, sell_price, beverage_id')
+        .eq('is_active', true);
+
+      if (simpleErr) return NextResponse.json({ stores: {}, total: 0 });
+
+      // Simple stats without category breakdown
+      const storeGroups = {};
+      for (const item of (simpleData || [])) {
+        const sid = item.store_id || '_none';
+        if (!storeGroups[sid]) storeGroups[sid] = { total: 0, totalValue: 0, categories: {} };
+        storeGroups[sid].total++;
+        storeGroups[sid].totalValue += (item.sell_price || 0);
+      }
+      return NextResponse.json({
+        stores: storeGroups,
+        total: (simpleData || []).length,
+        totalValue: (simpleData || []).reduce((s, i) => s + (i.sell_price || 0), 0),
+      });
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
