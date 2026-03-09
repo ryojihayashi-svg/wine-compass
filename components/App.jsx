@@ -1312,16 +1312,81 @@ function ItemListPage({ title, storeId, categoryId, stores, categories, onBack, 
   );
 }
 
-// ===== DetailModal =====
-function DetailModal({ item, stores, categories, onClose, onSave, onDelete }) {
-  const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({});
+// ===== AI Section Config =====
+const AI_SECTIONS = [
+  { key: 'taste', label: 'Taste', color: '#8B2252' },
+  { key: 'terroir', label: 'Terroir', color: '#6B8C5E' },
+  { key: 'producer', label: 'Producer', color: '#8B6914' },
+  { key: 'vintage', label: 'Vintage', color: '#5C5C78' },
+  { key: 'pairing', label: 'Pairing', color: '#B06040' },
+  { key: 'service', label: 'Service', color: '#6A7D8E' },
+  { key: 'market', label: 'Market', color: '#2A5E3F' },
+];
+const WINE_CACHE = {};
+const wineKey = (item) => (item.name || '') + '_' + (item.vintage || 'NV');
+
+// ===== AI Section Renderers =====
+function AiSectionContent({ section, data }) {
+  if (!data) return null;
+  if (data.error) return <div style={{ textAlign:'center', padding:20, color:'#B0AA9C', fontSize:12 }}>情報を取得できませんでした</div>;
+
+  const SH = ({ title }) => <div style={{ fontSize:10, color:'#A09A8C', textTransform:'uppercase', letterSpacing:1.5, fontFamily:F, marginBottom:12, fontWeight:600 }}>{title}</div>;
+  const P = ({ text }) => <div style={{ fontSize:13, lineHeight:1.7, color:'#3A3630', fontFamily:"'Noto Sans JP',sans-serif", marginBottom:12 }}>{text}</div>;
+  const Tag = ({ text, accent }) => <span style={{ display:'inline-block', fontSize:10, padding:'3px 10px', borderRadius:6, background: accent ? 'rgba(139,105,20,0.08)' : '#F0EDE8', color: accent ? '#8B6914' : '#5A5548', marginRight:4, marginBottom:4, fontFamily:F }}>{text}</span>;
+  const Row = ({ label, value }) => value && value !== 'null' ? (
+    <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottom:'1px solid #F0EDE8' }}>
+      <span style={{ fontSize:11, color:'#A09A8C', fontFamily:F }}>{label}</span>
+      <span style={{ fontSize:12, fontWeight:500, color:C.tx, textAlign:'right', maxWidth:'60%' }}>{value}</span>
+    </div>
+  ) : null;
+
+  if (section === 'taste') return (
+    <div>
+      <SH title="TASTING PROFILE" />
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:16 }}>
+        {[['Sweetness',data.sweetness],['Acidity',data.acidity],['Tannin',data.tannin],['Alcohol',data.alcohol],['Body',data.body],['Intensity',data.intensity],['Finish',data.finish]].map(([l,v]) =>
+          <div key={l} style={{ background:'#F6F4F0', borderRadius:8, padding:'8px 12px' }}>
+            <div style={{ fontSize:9, color:'#A09A8C', textTransform:'uppercase', letterSpacing:0.8, fontFamily:F }}>{l}</div>
+            <div style={{ fontSize:12, fontWeight:600, color:'#8B2252', marginTop:2, fontFamily:F, textTransform:'capitalize' }}>{v || '—'}</div>
+          </div>
+        )}
+      </div>
+      {data.aromas && <div style={{ marginBottom:12 }}>
+        <div style={{ fontSize:9, color:'#A09A8C', textTransform:'uppercase', letterSpacing:0.8, marginBottom:6, fontFamily:F }}>AROMAS</div>
+        <div style={{ display:'flex', flexWrap:'wrap' }}>{data.aromas.map(a => <Tag key={a} text={a} />)}</div>
+      </div>}
+      {data.description && <P text={data.description} />}
+    </div>
+  );
+  if (section === 'terroir') return (
+    <div><SH title="TERROIR" /><Row label="Country" value={data.country} /><Row label="Region" value={data.region} /><Row label="Sub-region" value={data.subregion} /><Row label="Village" value={data.village} /><Row label="Vineyard" value={data.vineyard} /><Row label="Soil" value={data.soil} /><Row label="Climate" value={data.climate} /><Row label="Elevation" value={data.elevation} /><div style={{ height:12 }} />{data.description && <P text={data.description} />}</div>
+  );
+  if (section === 'producer') return (
+    <div><SH title="PRODUCER" /><Row label="生産者" value={data.name} /><Row label="創業" value={data.founded} /><Row label="オーナー" value={data.owner} /><Row label="醸造責任者" value={data.winemaker} /><Row label="栽培方法" value={data.philosophy} /><div style={{ height:12 }} />{data.history && <P text={data.history} />}{data.notable && <div style={{ background:'#F6F4F0', borderRadius:10, padding:'12px 14px', borderLeft:`3px solid ${C.gold}`, marginTop:8 }}><P text={data.notable} /></div>}</div>
+  );
+  if (section === 'vintage') return (
+    <div><SH title={`VINTAGE ${data.year || ''}`} /><Row label="評価" value={data.rating} /><Row label="気候" value={data.climate} /><Row label="収穫" value={data.harvest} /><Row label="熟成ポテンシャル" value={data.aging} /><div style={{ height:12 }} />{data.description && <P text={data.description} />}</div>
+  );
+  if (section === 'pairing') return (
+    <div><SH title="FOOD PAIRING" />{data.ideal && <div style={{ marginBottom:12 }}><div style={{ fontSize:9, color:'#A09A8C', textTransform:'uppercase', letterSpacing:0.8, marginBottom:6, fontFamily:F }}>IDEAL PAIRINGS</div><div style={{ display:'flex', flexWrap:'wrap' }}>{data.ideal.map(p => <Tag key={p} text={p} accent />)}</div></div>}<Row label="クラシック" value={data.classic} /><Row label="避けるべき" value={data.avoid} /><div style={{ height:12 }} />{data.description && <P text={data.description} />}</div>
+  );
+  if (section === 'service') return (
+    <div><SH title="SERVICE" /><Row label="適温" value={data.temperature} /><Row label="グラス" value={data.glass} /><Row label="デカンタ" value={data.decant} /><Row label="開栓" value={data.timing} /><div style={{ height:12 }} />{data.description && <P text={data.description} />}</div>
+  );
+  if (section === 'market') return (
+    <div><SH title="MARKET" /><Row label="市場価格" value={data.avgPrice} /><Row label="価格レンジ" value={data.priceRange} /><Row label="トレンド" value={data.trend} /><Row label="希少性" value={data.rarity} /><Row label="評価" value={data.critic} /><div style={{ height:12 }} />{data.description && <P text={data.description} />}</div>
+  );
+  return null;
+}
+
+// ===== EditModal =====
+function EditModal({ item, stores, categories, onSave, onClose }) {
+  const [form, setForm] = useState({ ...item });
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => { if (item) setForm({ ...item }); }, [item]);
-  if (!item) return null;
-
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const catOpts = categories.map(c => ({ value: c.id, label: (c.parent_id ? '  ' : '') + c.name }));
+  const storeOpts = stores.map(s => ({ value: s.id, label: s.name }));
 
   const save = async () => {
     setSaving(true);
@@ -1330,64 +1395,31 @@ function DetailModal({ item, stores, categories, onClose, onSave, onDelete }) {
       if (form[k] !== item[k]) updates[k] = form[k];
     }
     if (Object.keys(updates).length > 0) await onSave(item.id, updates);
-    setEditing(false); setSaving(false);
+    setSaving(false); onClose();
   };
-
-  const adjustQty = async (delta) => {
-    await onSave(item.id, { quantity: Math.max(0, item.quantity + delta) });
-  };
-
-  const catName = categories.find(c => c.id === item.category_id)?.name || '-';
-  const storeName = stores.find(s => s.id === item.store_id)?.name || item.store_id;
-  const catOpts = categories.map(c => ({ value: c.id, label: (c.parent_id ? '  ' : '') + c.name }));
-  const storeOpts = stores.map(s => ({ value: s.id, label: s.name }));
 
   const Field = ({ label, k, type, opts }) => (
     <div style={{ marginBottom:14 }}>
       <div style={{ fontSize:10, color:C.sub, marginBottom:4, fontFamily:F, textTransform:'uppercase', letterSpacing:0.5 }}>{label}</div>
-      {editing ? (
-        opts ? (
-          <select value={form[k] || ''} onChange={e => set(k, e.target.value === '' ? null : (type === 'number' ? Number(e.target.value) : e.target.value))}
-            style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F, background:C.card, boxSizing:'border-box' }}>
-            <option value="">-</option>
-            {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        ) : type === 'textarea' ? (
-          <textarea value={form[k] || ''} onChange={e => set(k, e.target.value)}
-            style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F, minHeight:60, resize:'vertical', boxSizing:'border-box' }} />
-        ) : (
-          <input type={type || 'text'} value={form[k] ?? ''} onChange={e => set(k, type === 'number' ? (e.target.value === '' ? null : Number(e.target.value)) : e.target.value)}
-            style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F, boxSizing:'border-box' }} />
-        )
+      {opts ? (
+        <select value={form[k] || ''} onChange={e => set(k, e.target.value === '' ? null : (type === 'number' ? Number(e.target.value) : e.target.value))}
+          style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F, background:C.card, boxSizing:'border-box' }}>
+          <option value="">-</option>
+          {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      ) : type === 'textarea' ? (
+        <textarea value={form[k] || ''} onChange={e => set(k, e.target.value)}
+          style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F, minHeight:60, resize:'vertical', boxSizing:'border-box' }} />
       ) : (
-        <div style={{ fontSize:14, color:C.tx, fontFamily: k === 'name' ? EL : F }}>{
-          k === 'price' || k === 'cost_price' ? fmt(item[k]) :
-          k === 'vintage' ? vintageLabel(item[k]) :
-          k === 'size_ml' ? (item[k] ? `${item[k]}ml` : '-') :
-          k === 'store_id' ? storeName :
-          k === 'category_id' ? catName :
-          item[k] || '-'
-        }</div>
+        <input type={type || 'text'} value={form[k] ?? ''} onChange={e => set(k, type === 'number' ? (e.target.value === '' ? null : Number(e.target.value)) : e.target.value)}
+          style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F, boxSizing:'border-box' }} />
       )}
     </div>
   );
 
   return (
     <BottomSheet open={true} onClose={onClose}>
-      <div style={{ fontSize:18, fontWeight:600, fontFamily:EL, color:C.tx, marginBottom:4 }}>{item.name}</div>
-      <div style={{ fontSize:12, color:C.sub, marginBottom:16 }}>{item.producer || ''}{item.vintage ? ` · ${item.vintage}` : ''}</div>
-
-      {!editing && (
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:20, padding:'16px 0', borderTop:`1px solid ${C.bd}`, borderBottom:`1px solid ${C.bd}`, marginBottom:16 }}>
-          <button onClick={() => adjustQty(-1)} style={{ width:40, height:40, borderRadius:'50%', border:`1px solid ${C.bd}`, background:C.card, fontSize:18, cursor:'pointer', color:C.tx, display:'flex', alignItems:'center', justifyContent:'center' }}>−</button>
-          <div style={{ textAlign:'center' }}>
-            <div style={{ fontSize:32, fontWeight:600, fontFamily:F, color:C.tx }}>{item.quantity}</div>
-            <div style={{ fontSize:10, color:C.sub }}>在庫数</div>
-          </div>
-          <button onClick={() => adjustQty(1)} style={{ width:40, height:40, borderRadius:'50%', border:`1px solid ${C.bd}`, background:C.card, fontSize:18, cursor:'pointer', color:C.tx, display:'flex', alignItems:'center', justifyContent:'center' }}>+</button>
-        </div>
-      )}
-
+      <div style={{ fontSize:14, fontWeight:600, fontFamily:F, color:C.tx, marginBottom:16 }}>編集</div>
       <Field label="ワイン名" k="name" />
       <Field label="生産者" k="producer" />
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
@@ -1403,21 +1435,188 @@ function DetailModal({ item, stores, categories, onClose, onSave, onDelete }) {
         <Field label="価格" k="price" type="number" />
         <Field label="仕入値" k="cost_price" type="number" />
       </div>
-      {editing && <Field label="在庫数" k="quantity" type="number" />}
+      <Field label="在庫数" k="quantity" type="number" />
       <Field label="メモ" k="notes" type="textarea" />
-
       <div style={{ display:'flex', gap:10, marginTop:20 }}>
-        {editing ? (
-          <>
-            <button onClick={() => setEditing(false)} style={{ flex:1, padding:'12px', borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.tx }}>キャンセル</button>
-            <button onClick={save} disabled={saving} style={{ flex:1, padding:'12px', borderRadius:2, border:'none', background:C.acc, color:'#fff', fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer' }}>{saving ? '...' : '保存'}</button>
-          </>
+        <button onClick={onClose} style={{ flex:1, padding:'12px', borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.tx }}>キャンセル</button>
+        <button onClick={save} disabled={saving} style={{ flex:1, padding:'12px', borderRadius:2, border:'none', background:C.acc, color:'#fff', fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer' }}>{saving ? '...' : '保存'}</button>
+      </div>
+    </BottomSheet>
+  );
+}
+
+// ===== DetailModal =====
+function DetailModal({ item, stores, categories, onClose, onSave, onDelete }) {
+  const [editing, setEditing] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+
+  // AI state
+  const wk = wineKey(item);
+  const [section, setSection] = useState(null);
+  const [aiData, setAiData] = useState(WINE_CACHE[wk] || {});
+  const [loading, setLoading] = useState(null);
+
+  if (!item) return null;
+
+  const catName = categories.find(c => c.id === item.category_id)?.name || '';
+  const storeName = stores.find(s => s.id === item.store_id)?.name || item.store_id;
+  const vt = item.vintage ? String(item.vintage) : null;
+
+  const adjustQty = async (delta) => {
+    const newQty = Math.max(0, (item.quantity || 0) + delta);
+    if (newQty === item.quantity) return;
+    await onSave(item.id, { quantity: newQty });
+  };
+
+  const fetchSection = (key) => {
+    if (aiData[key]) { setSection(key); return; }
+    setSection(key); setLoading(key);
+    const wine = `${item.producer || ''} ${item.name} ${item.vintage || 'NV'} (${catName}, ${item.region || ''})`;
+    fetch('/api/ai/wine-analysis', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wine, section: key }),
+    }).then(r => r.json()).then(parsed => {
+      if (parsed.error) {
+        setAiData(prev => ({ ...prev, [key]: { error: true } }));
+      } else {
+        const nd = { ...aiData, [key]: parsed };
+        WINE_CACHE[wk] = nd;
+        setAiData(nd);
+      }
+      setLoading(null);
+    }).catch(() => {
+      setAiData(prev => ({ ...prev, [key]: { error: true } }));
+      setLoading(null);
+    });
+  };
+
+  // Stat display component
+  const Stat = ({ label, value, accent }) => (
+    <div style={{ flex:1 }}>
+      <div style={{ fontSize:9, color:'#A09A8C', textTransform:'uppercase', letterSpacing:1, marginBottom:4, fontFamily:F }}>{label}</div>
+      <div style={{ fontSize:17, fontWeight:600, color: accent || C.tx, fontFamily:F }}>{value || '—'}</div>
+    </div>
+  );
+  const Div = () => <div style={{ height:1, background:C.bd, margin:'16px 0' }} />;
+
+  // Delegate to EditModal
+  if (editing) return <EditModal item={item} stores={stores} categories={categories} onSave={onSave} onClose={() => setEditing(false)} />;
+
+  return (
+    <BottomSheet open={true} onClose={onClose}>
+      <div style={{ padding:'4px 4px 0' }}>
+        {/* AI Section view */}
+        {section ? (
+          <div>
+            <button onClick={() => setSection(null)} style={{ background:'none', border:'none', cursor:'pointer', padding:0, display:'flex', alignItems:'center', gap:4, color:'#A09A8C', fontSize:11, marginBottom:12, fontFamily:F }}>
+              <svg width={16} height={16} fill="none" stroke="#A09A8C" strokeWidth={2} viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" /></svg>
+              <span>{item.name}{vt ? ` ${vt}` : ''}</span>
+            </button>
+            {loading === section ? (
+              <div style={{ textAlign:'center', padding:'40px 0' }}>
+                <div style={{ fontSize:11, color:'#A09A8C', fontFamily:F, marginBottom:8 }}>{AI_SECTIONS.find(s => s.key === section)?.label} を取得中...</div>
+                <div style={{ width:28, height:28, border:'2px solid #E8E4DC', borderTop:'2px solid #8B6914', borderRadius:'50%', margin:'0 auto', animation:'spin 0.8s linear infinite' }} />
+              </div>
+            ) : (
+              <AiSectionContent section={section} data={aiData[section]} />
+            )}
+          </div>
         ) : (
-          <>
-            <button onClick={() => { if (confirm(`「${item.name}」を削除しますか？`)) onDelete(item.id); }}
-              style={{ flex:1, padding:'12px', borderRadius:2, border:`1px solid ${C.red}`, background:'transparent', color:C.red, fontSize:14, fontFamily:F, cursor:'pointer' }}>削除</button>
-            <button onClick={() => setEditing(true)} style={{ flex:1, padding:'12px', borderRadius:2, border:'none', background:C.acc, color:'#fff', fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer' }}>編集</button>
-          </>
+          <div>
+            {/* Producer name */}
+            {item.producer && <div style={{ fontSize:11, color:'#A09A8C', marginBottom:4, fontFamily:F, letterSpacing:0.3 }}>{item.producer}</div>}
+
+            {/* Wine name + vintage */}
+            <div style={{ fontSize:22, fontWeight:700, lineHeight:1.3, fontFamily:EL, color:C.tx }}>
+              {item.name}
+              {vt && <span style={{ fontWeight:400, fontSize:18, color:'#8A8478', marginLeft:6, fontFamily:F }}>{vt}</span>}
+            </div>
+
+            {/* Region / Category line */}
+            <div style={{ display:'flex', alignItems:'center', gap:5, marginTop:8 }}>
+              <span style={{ fontSize:11, color:'#A09A8C', fontFamily:F }}>{catName}</span>
+              {item.region && <span style={{ fontSize:10, color:'#B0AA9C', fontFamily:F, marginLeft:6 }}>{item.region}</span>}
+            </div>
+
+            <Div />
+
+            {/* Info Grid Row 1: Vintage + Stock */}
+            <div style={{ display:'flex', gap:0 }}>
+              <Stat label="Vintage" value={item.vintage || 'NV'} accent={C.acc} />
+              <div style={{ width:1, background:C.bd, margin:'0 16px', alignSelf:'stretch' }} />
+              <Stat label="在庫" value={`${item.quantity || 0}本`} accent={(item.quantity || 0) <= 1 ? C.red : C.green} />
+            </div>
+
+            <Div />
+
+            {/* Info Grid Row 2: Cost + Stock Value */}
+            <div style={{ display:'flex', gap:0 }}>
+              <Stat label="仕入価格" value={fmt(item.cost_price || item.price)} />
+              <div style={{ width:1, background:C.bd, margin:'0 16px', alignSelf:'stretch' }} />
+              <Stat label="在庫金額" value={item.price ? fmt(Math.round((item.quantity || 0) * item.price)) : '—'} />
+            </div>
+
+            <Div />
+
+            {/* 7 AI Analysis Buttons (4 + 3 grid) */}
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:6, marginBottom:6 }}>
+              {AI_SECTIONS.slice(0, 4).map(s => {
+                const cached = !!aiData[s.key] && !aiData[s.key]?.error;
+                return (
+                  <button key={s.key} onClick={() => fetchSection(s.key)} style={{
+                    background: cached ? C.card : '#F6F4F0', border: `1px solid ${cached ? C.gold : C.bd}`,
+                    borderRadius:10, padding:'10px 4px', cursor:'pointer', textAlign:'center', position:'relative',
+                  }}>
+                    {cached && <div style={{ position:'absolute', top:5, right:5, width:5, height:5, borderRadius:'50%', background:C.gold }} />}
+                    <div style={{ fontSize:10, fontWeight:600, color:s.color, fontFamily:F, letterSpacing:0.3 }}>{s.label}</div>
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:6 }}>
+              {AI_SECTIONS.slice(4).map(s => {
+                const cached = !!aiData[s.key] && !aiData[s.key]?.error;
+                return (
+                  <button key={s.key} onClick={() => fetchSection(s.key)} style={{
+                    background: cached ? C.card : '#F6F4F0', border: `1px solid ${cached ? C.gold : C.bd}`,
+                    borderRadius:10, padding:'10px 4px', cursor:'pointer', textAlign:'center', position:'relative',
+                  }}>
+                    {cached && <div style={{ position:'absolute', top:5, right:5, width:5, height:5, borderRadius:'50%', background:C.gold }} />}
+                    <div style={{ fontSize:10, fontWeight:600, color:s.color, fontFamily:F, letterSpacing:0.3 }}>{s.label}</div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Quantity Adjuster Bar */}
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:16, marginTop:16, padding:'12px 0', background:'#F6F4F0', borderRadius:8 }}>
+              <button onClick={() => adjustQty(-1)} style={{ width:40, height:40, borderRadius:'50%', border:`1px solid ${C.bd}`, background:C.card, fontSize:18, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:C.red }}>−</button>
+              <div style={{ textAlign:'center', minWidth:60 }}>
+                <div style={{ fontSize:9, color:C.sub, textTransform:'uppercase', letterSpacing:1, fontFamily:F }}>数量</div>
+                <div style={{ fontSize:22, fontWeight:700, fontFamily:F, color:C.tx }}>{item.quantity || 0}</div>
+              </div>
+              <button onClick={() => adjustQty(1)} style={{ width:40, height:40, borderRadius:'50%', border:`1px solid ${C.bd}`, background:C.card, fontSize:18, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:C.green }}>+</button>
+            </div>
+
+            {/* Delete confirmation */}
+            {confirmDel ? (
+              <div style={{ marginTop:12, padding:14, background:'rgba(181,61,31,0.06)', border:'1px solid rgba(181,61,31,0.2)', borderRadius:4 }}>
+                <div style={{ fontSize:12, fontWeight:500, color:C.red, marginBottom:8 }}>このアイテムを削除しますか？</div>
+                <div style={{ display:'flex', gap:8 }}>
+                  <button onClick={() => setConfirmDel(false)} style={{ flex:1, padding:10, background:C.card, border:`1px solid ${C.bd}`, borderRadius:2, fontSize:12, cursor:'pointer', fontFamily:F }}>キャンセル</button>
+                  <button onClick={() => onDelete(item.id)} style={{ flex:1, padding:10, background:C.red, color:'#fff', border:'none', borderRadius:2, fontSize:12, fontWeight:500, cursor:'pointer', fontFamily:F }}>削除する</button>
+                </div>
+              </div>
+            ) : (
+              /* Edit / Delete / Close buttons */
+              <div style={{ display:'flex', gap:8, marginTop:12 }}>
+                <button onClick={() => setEditing(true)} style={{ flex:1, padding:14, background:C.card, color:C.acc, border:`1px solid ${C.bd}`, borderRadius:2, fontSize:13, fontWeight:500, cursor:'pointer', fontFamily:F }}>編集</button>
+                <button onClick={() => setConfirmDel(true)} style={{ padding:'14px 16px', background:C.card, color:C.red, border:`1px solid ${C.bd}`, borderRadius:2, fontSize:13, cursor:'pointer', fontFamily:F }}>削除</button>
+                <button onClick={onClose} style={{ flex:1, padding:14, background:C.tx, color:C.card, border:'none', borderRadius:2, fontSize:13, fontWeight:500, cursor:'pointer', fontFamily:F }}>閉じる</button>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </BottomSheet>
@@ -1573,6 +1772,7 @@ export default function App() {
       <style>{`
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
         @keyframes slideDown { from { transform: translateY(0); } to { transform: translateY(100%); } }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         * { -webkit-tap-highlight-color: transparent; }
         ::-webkit-scrollbar { display: none; }
         input:focus, select:focus, textarea:focus { border-color: ${C.acc} !important; outline: none; }
