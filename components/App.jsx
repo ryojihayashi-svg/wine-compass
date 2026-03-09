@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { C, F, SR, EL, MCC, T, fmt, vintageLabel } from '../lib/constants';
+import { parseInventoryExcel } from '../lib/excelParser';
 
 // ===== Auth =====
 const useAuth = () => {
@@ -327,12 +328,166 @@ function GlobalSearch({ stores, onSelect }) {
   );
 }
 
+// ===== ExcelImport =====
+function ExcelImport({ stores, categories, onClose, onImported }) {
+  const [step, setStep] = useState('select'); // select | preview | importing | done
+  const [groups, setGroups] = useState([]);
+  const [storeId, setStoreId] = useState(stores[0]?.id || '');
+  const [checked, setChecked] = useState({});
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+  const fileRef = useRef(null);
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError('');
+    try {
+      const xlsxModule = await import('xlsx');
+      const XLSX = xlsxModule.default || xlsxModule;
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf);
+      const parsed = parseInventoryExcel(wb, XLSX);
+      if (parsed.length === 0) { setError('データが見つかりません'); return; }
+      setGroups(parsed);
+      // Default: all checked
+      const c = {};
+      parsed.forEach(g => { c[g.sheet] = true; });
+      setChecked(c);
+      setStep('preview');
+    } catch (err) {
+      setError('ファイル読取エラー: ' + err.message);
+    }
+  };
+
+  const totalItems = groups.filter(g => checked[g.sheet]).reduce((s, g) => s + g.items.length, 0);
+
+  const doImport = async () => {
+    if (!storeId) { setError('店舗を選択してください'); return; }
+    setStep('importing');
+    const items = groups.filter(g => checked[g.sheet]).flatMap(g => g.items);
+    try {
+      const r = await fetch('/api/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items, store_id: storeId }),
+      });
+      const data = await r.json();
+      setResult(data);
+      setStep('done');
+      if (data.inserted > 0) onImported();
+    } catch (err) {
+      setError('インポートエラー: ' + err.message);
+      setStep('preview');
+    }
+  };
+
+  const catName = (id) => categories.find(c => c.id === id)?.name || '未分類';
+
+  return (
+    <BottomSheet open={true} onClose={onClose}>
+      {step === 'select' && (
+        <div>
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:16 }}>Excel取込</div>
+          <div style={{ fontSize:12, color:C.sub, marginBottom:16 }}>明寂飲料在庫のExcelファイル (.xlsx) を選択してください</div>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleFile} style={{ display:'none' }} />
+          <button onClick={() => fileRef.current?.click()} style={{
+            width:'100%', padding:16, borderRadius:2, border:`2px dashed ${C.bd}`, background:'transparent',
+            fontSize:14, fontFamily:F, color:C.acc, cursor:'pointer', textAlign:'center',
+          }}>📁 ファイルを選択</button>
+          {error && <div style={{ color:C.red, fontSize:12, marginTop:12 }}>{error}</div>}
+        </div>
+      )}
+
+      {step === 'preview' && (
+        <div>
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:4 }}>インポートプレビュー</div>
+          <div style={{ fontSize:12, color:C.sub, marginBottom:16 }}>取り込むシートを選択 → {totalItems}件</div>
+
+          {/* Store selector */}
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontSize:10, color:C.sub, marginBottom:4, textTransform:'uppercase', letterSpacing:0.5 }}>取込先店舗</div>
+            <select value={storeId} onChange={e => setStoreId(e.target.value)}
+              style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F }}>
+              {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+
+          {/* Sheet checkboxes */}
+          <div style={{ maxHeight:'40vh', overflowY:'auto', marginBottom:16 }}>
+            {groups.map(g => (
+              <div key={g.sheet} style={{
+                padding:'10px 12px', marginBottom:6, background: checked[g.sheet] ? '#F5F3EE' : C.card,
+                border:`1px solid ${checked[g.sheet] ? C.acc : C.bd}`, borderRadius:2, cursor:'pointer',
+              }} onClick={() => setChecked(c => ({ ...c, [g.sheet]: !c[g.sheet] }))}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                  <div>
+                    <span style={{ fontSize:13, fontWeight:500, color:C.tx }}>{g.label}</span>
+                    <span style={{ fontSize:11, color:C.sub, marginLeft:8 }}>{g.items.length}件</span>
+                  </div>
+                  <div style={{ width:18, height:18, borderRadius:2, border:`2px solid ${checked[g.sheet] ? C.acc : C.bd}`,
+                    background: checked[g.sheet] ? C.acc : 'transparent', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    {checked[g.sheet] && <span style={{ color:'#fff', fontSize:12, fontWeight:700 }}>✓</span>}
+                  </div>
+                </div>
+                {/* Show first 3 items as preview */}
+                {checked[g.sheet] && (
+                  <div style={{ marginTop:6 }}>
+                    {g.items.slice(0, 3).map((item, i) => (
+                      <div key={i} style={{ fontSize:11, color:C.sub, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        {item.vintage || 'NV'} {item.name} ({item.quantity}本)
+                      </div>
+                    ))}
+                    {g.items.length > 3 && <div style={{ fontSize:10, color:C.sub }}>...他 {g.items.length - 3}件</div>}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {error && <div style={{ color:C.red, fontSize:12, marginBottom:12 }}>{error}</div>}
+
+          <div style={{ display:'flex', gap:10 }}>
+            <button onClick={onClose} style={{ flex:1, padding:12, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.tx }}>キャンセル</button>
+            <button onClick={doImport} disabled={totalItems === 0} style={{
+              flex:1, padding:12, borderRadius:2, border:'none', background: totalItems > 0 ? C.acc : C.bd,
+              color:'#fff', fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer',
+            }}>{totalItems}件を取込</button>
+          </div>
+        </div>
+      )}
+
+      {step === 'importing' && (
+        <div style={{ textAlign:'center', padding:40 }}>
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:8 }}>取込中...</div>
+          <div style={{ fontSize:13, color:C.sub }}>{totalItems}件をインポートしています</div>
+        </div>
+      )}
+
+      {step === 'done' && result && (
+        <div style={{ textAlign:'center', padding:20 }}>
+          <div style={{ fontSize:40, marginBottom:12 }}>✅</div>
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:8 }}>取込完了</div>
+          <div style={{ fontSize:14, color:C.green, fontWeight:600, marginBottom:4 }}>{result.inserted}件 追加しました</div>
+          {result.errors?.length > 0 && (
+            <div style={{ fontSize:12, color:C.red, marginTop:8 }}>エラー: {result.errors.length}件</div>
+          )}
+          <button onClick={onClose} style={{
+            marginTop:20, padding:'12px 32px', borderRadius:2, border:'none', background:C.acc,
+            color:'#fff', fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer',
+          }}>閉じる</button>
+        </div>
+      )}
+    </BottomSheet>
+  );
+}
+
 // ===== StockManager =====
-function StockManager({ onNavigate }) {
+function StockManager({ onNavigate, onImport }) {
   const actions = [
     { icon: '📦', title: '在庫一覧', desc: '全アイテムを閲覧・管理', action: () => onNavigate('list-items', { title: '全在庫一覧' }) },
     { icon: '➕', title: '新規追加', desc: 'アイテムを手動で追加', action: () => onNavigate('add') },
-    { icon: '📊', title: 'Excel取込', desc: 'Excelファイルから一括追加', action: () => {} },
+    { icon: '📊', title: 'Excel取込', desc: 'Excelファイルから一括追加', action: () => onImport() },
     { icon: '📋', title: 'CSV出力', desc: '在庫データをCSVでエクスポート', action: () => {} },
     { icon: '🗑️', title: 'ゴミ箱', desc: '削除済みアイテムの復元', action: () => {} },
   ];
@@ -628,6 +783,7 @@ export default function App() {
   const [subView, setSubView] = useState(null);
   const [selected, setSelected] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [toast, setToast] = useState('');
 
   useEffect(() => {
@@ -673,7 +829,7 @@ export default function App() {
     switch (tab) {
       case 'home': return <HomeView stores={stores} categories={categories} onNavigate={navigate} />;
       case 'search': return <GlobalSearch stores={stores} onSelect={setSelected} />;
-      case 'stock': return <StockManager onNavigate={navigate} />;
+      case 'stock': return <StockManager onNavigate={navigate} onImport={() => setShowImport(true)} />;
       case 'list': return <ItemListPage title="全在庫一覧" stores={stores} categories={categories} onBack={() => setTab('home')} onSelect={setSelected} onAdd={() => setShowAdd(true)} />;
       case 'settings': return (
         <div style={{ padding:'16px 16px 100px' }}>
@@ -691,6 +847,7 @@ export default function App() {
       {!subView && <BottomNav tab={tab} onTab={(t) => { setTab(t); setSubView(null); }} />}
       {selected && <DetailModal item={selected} stores={stores} categories={categories} onClose={() => setSelected(null)} onSave={saveItem} onDelete={deleteItem} />}
       {showAdd && <AddItemForm stores={stores} categories={categories} onClose={() => setShowAdd(false)} onAdd={addItem} />}
+      {showImport && <ExcelImport stores={stores} categories={categories} onClose={() => setShowImport(false)} onImported={() => setToast('インポート完了')} />}
       <Toast msg={toast} onClose={() => setToast('')} />
       <style>{`
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
