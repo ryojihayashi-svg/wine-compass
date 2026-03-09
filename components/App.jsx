@@ -435,13 +435,17 @@ function GlobalSearch({ stores, onSelect }) {
             background:C.card, borderRadius:1, padding:'12px 14px 12px 20px', border:`1px solid ${C.bd}`,
             marginBottom:5, cursor:'pointer', position:'relative',
           }}>
-            <div style={{ position:'absolute', left:0, top:4, bottom:4, width:3, background: storeColor[item.store_id] || C.acc, opacity:0.6, borderRadius:'0 2px 2px 0' }} />
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+            <div style={{ position:'absolute', left:0, top:0, bottom:0, width:3, background: storeColor[item.store_id] || C.acc, opacity:0.5 }} />
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', paddingLeft:4 }}>
               <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
-                <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>{item.producer || ''}{item.vintage ? ` · ${item.vintage}` : ''}</div>
+                {item.producer && <div style={{ fontSize:9, color:'#A09A8C', fontFamily:F, letterSpacing:0.3 }}>{item.producer}</div>}
+                <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, lineHeight:1.35, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}{item.vintage && <span style={{ fontWeight:400, fontSize:12, color:'#8A8478', marginLeft:3, fontFamily:F }}>{item.vintage}</span>}</div>
+                {item.name_kana && item.name_kana !== item.name && <div style={{ fontSize:10, color:'#B0AA9C', fontFamily:"'Noto Sans JP',sans-serif", marginTop:1 }}>{item.name_kana}</div>}
               </div>
-              <div style={{ flexShrink:0, marginLeft:8 }}><QBadge q={item.quantity} /></div>
+              <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:3, flexShrink:0, marginLeft:10 }}>
+                <QBadge q={item.quantity} />
+                {item.price != null && <span style={{ fontSize:10, color:'#B0AA9C', fontFamily:F }}>{fmt(item.price)}</span>}
+              </div>
             </div>
           </div>
         ))}
@@ -1701,7 +1705,7 @@ function WineListManager({ storeId, categoryId, stores, categories, onBack, onRe
                   border:`1px solid ${adding?.id === item.id ? C.acc : C.bd}`, marginBottom:4,
                   cursor:'pointer', position:'relative',
                 }}>
-                <div style={{ position:'absolute', left:0, top:4, bottom:4, width:3, background: storeColor[item.store_id] || C.acc, opacity:0.6, borderRadius:'0 2px 2px 0' }} />
+                <div style={{ position:'absolute', left:0, top:0, bottom:0, width:3, background: storeColor[item.store_id] || C.acc, opacity:0.5 }} />
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:600, fontFamily:EL, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
@@ -1953,17 +1957,17 @@ function ItemListPage({ title, storeId, categoryId, stores, categories, onBack, 
             background:C.card, borderRadius:1, padding:'12px 14px 12px 20px', border:`1px solid ${C.bd}`,
             marginBottom:5, cursor:'pointer', position:'relative',
           }}>
-            <div style={{ position:'absolute', left:0, top:4, bottom:4, width:3, background: storeColor[item.store_id] || C.acc, opacity:0.6, borderRadius:'0 2px 2px 0' }} />
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+            <div style={{ position:'absolute', left:0, top:0, bottom:0, width:3, background: storeColor[item.store_id] || C.acc, opacity:0.5 }} />
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', paddingLeft:4 }}>
               <div style={{ flex:1, minWidth:0 }}>
-                {item.producer && <div style={{ fontSize:9, color:C.sub, letterSpacing:0.5, marginBottom:1 }}>{item.producer}{item.vintage ? ` · ${item.vintage}` : ''}</div>}
-                <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, lineHeight:1.3 }}>{item.vintage && !item.producer ? `${item.vintage} ` : ''}{item.name}</div>
-                {item.name_kana && item.name_kana !== item.name && <div style={{ fontSize:10, color:C.sub, marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name_kana}</div>}
-                {!item.producer && item.vintage && <div style={{ fontSize:10, color:C.sub, marginTop:1 }}>{item.vintage}</div>}
+                {item.producer && <div style={{ fontSize:9, color:'#A09A8C', fontFamily:F, letterSpacing:0.3, marginBottom:1 }}>{item.producer}</div>}
+                {(item.region || (item.wc_categories && !categoryId)) && <div style={{ fontSize:9, color:'#B0AA9C', fontFamily:F, marginTop:1 }}>{item.region || item.wc_categories?.name || ''}</div>}
+                <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, lineHeight:1.35 }}>{item.name}{item.vintage && <span style={{ fontWeight:400, fontSize:12, color:'#8A8478', marginLeft:3, fontFamily:F }}>{item.vintage}</span>}</div>
+                {item.name_kana && item.name_kana !== item.name && <div style={{ fontSize:10, color:'#B0AA9C', fontFamily:"'Noto Sans JP',sans-serif", marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name_kana}</div>}
               </div>
-              <div style={{ flexShrink:0, marginLeft:8, textAlign:'right' }}>
+              <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:3, flexShrink:0, marginLeft:10 }}>
                 <QBadge q={item.quantity} />
-                {item.price != null && <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>{fmt(item.price)}</div>}
+                {item.price != null && <span style={{ fontSize:10, color:'#B0AA9C', fontFamily:F }}>{fmt(item.price)}</span>}
               </div>
             </div>
           </div>
@@ -2375,8 +2379,8 @@ export default function App() {
 
   useEffect(() => {
     if (!ok) return;
-    fetch('/api/stores').then(r => r.json()).then(setStores).catch(() => {});
-    fetch('/api/categories').then(r => r.json()).then(setCategories).catch(() => {});
+    fetch('/api/stores').then(r => r.json()).then(d => Array.isArray(d) ? setStores(d) : setStores([])).catch(() => {});
+    fetch('/api/categories').then(r => r.json()).then(d => Array.isArray(d) ? setCategories(d) : setCategories([])).catch(() => {});
   }, [ok]);
 
   const navigate = (type, params = {}) => {

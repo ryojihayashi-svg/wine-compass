@@ -442,16 +442,42 @@ SINGLE_VOCAB = {
     'グランクリュ': 'Grand Cru',
 }
 
+# --- Load additional vocabulary ---
+try:
+    from additional_vocab import ADDITIONAL_VOCAB, NO_SEPARATOR_COMPOUNDS
+except ImportError:
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("additional_vocab",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'additional_vocab.py'))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    ADDITIONAL_VOCAB = mod.ADDITIONAL_VOCAB
+    NO_SEPARATOR_COMPOUNDS = mod.NO_SEPARATOR_COMPOUNDS
+
+# Merge additional vocab into existing
+SINGLE_VOCAB.update(ADDITIONAL_VOCAB)
+
 # Compound entries (contain ・) — applied to full string before splitting
 COMPOUND_VOCAB = {k: v for k, v in WINE_VOCAB.items() if '・' in k}
 COMPOUND_SORTED = sorted(COMPOUND_VOCAB.items(), key=lambda x: len(x[0]), reverse=True)
 
+# No-separator compounds — sorted longest first for greedy matching
+NO_SEP_SORTED = sorted(NO_SEPARATOR_COMPOUNDS.items(), key=lambda x: len(x[0]), reverse=True)
+
 # Non-compound entries with 3+ chars — applied to segments exactly
 SEGMENT_VOCAB = {k: v for k, v in WINE_VOCAB.items() if '・' not in k}
+# Merge additional vocab entries that are 3+ katakana chars
+for k, v in ADDITIONAL_VOCAB.items():
+    if len(k) >= 3 and k not in SEGMENT_VOCAB:
+        SEGMENT_VOCAB[k] = v
 
 
 def katakana_to_french(name):
-    """Convert katakana wine name to French using vocabulary lookup"""
+    """Convert katakana wine name to French using vocabulary lookup.
+
+    Improved v2: handles space-separated segments, no-separator compounds,
+    and number+katakana compounds.
+    """
     if not name:
         return name
 
@@ -463,7 +489,8 @@ def katakana_to_french(name):
 
     # Step 2: Strip trailing annotations and retry
     suffixes_to_strip = [' ラック', ' ファインズ', ' ミレジム', ' VP', ' フィラディス',
-                         ' 豊通', ' AMZ', ' ジェロボーム']
+                         ' 豊通', ' AMZ', ' ジェロボーム', ' JALUX', '　ラック', '　ファインズ',
+                         ' 特価', '　特価', ' テラヴェール', ' 安發サン']
     clean_name = name
     for s in suffixes_to_strip:
         if name.endswith(s):
@@ -476,34 +503,64 @@ def katakana_to_french(name):
             return v
 
     # Also try normalized forms
-    for variant in [clean_name.replace('・', ' '), clean_name.replace('・', '-')]:
+    for variant in [clean_name.replace('・', ' '), clean_name.replace('・', '-'),
+                    clean_name.replace('　', ' ')]:
         if variant in EN_MAP:
             v = EN_MAP[variant]
             if not any('\u3040' <= c <= '\u9fff' for c in v):
                 return v
 
-    # Step 3: Replace compound vocab entries (those with ・) in the full string
+    # Step 3: Replace no-separator compounds FIRST (before any splitting)
     result = clean_name
-    for ja, fr in COMPOUND_SORTED:
+    for ja, fr in NO_SEP_SORTED:
         if ja in result:
             result = result.replace(ja, fr)
 
-    # Step 4: Split remaining ・-delimited segments and translate each
-    parts = re.split(r'・', result)
+    # Step 4: Replace compound vocab entries (those with ・) at ・ boundaries
+    for ja, fr in COMPOUND_SORTED:
+        if ja in result:
+            # Only match at ・ boundaries or string start/end to avoid partial matches
+            pattern = r'(?:^|(?<=・))' + re.escape(ja) + r'(?=$|(?=・))'
+            result = re.sub(pattern, fr, result)
+
+    # Step 5: Split on ・ AND spaces, translate each segment
+    # First normalize: replace ・ and 　 with space for uniform splitting
+    result = result.replace('・', ' ').replace('　', ' ')
+    # Separate Latin letter+period from katakana (e.g. "E.ギガル" → "E. ギガル")
+    result = re.sub(r'([A-Za-z]\.)([\u30A0-\u30FF])', r'\1 \2', result)
+
+    # Split number+katakana compounds (e.g. "7クリュ" → "7 クリュ")
+    result = re.sub(r'(\d)([\u30A0-\u30FF])', r'\1 \2', result)
+    result = re.sub(r'([\u30A0-\u30FF])(\d)', r'\1 \2', result)
+
+    parts = result.split(' ')
     translated = []
     for part in parts:
         p = part.strip()
         if not p:
             continue
-        # Check exact match in SEGMENT_VOCAB (non-compound, 3+ char entries)
+        # Already Latin text? keep as-is
+        if p.isascii() or (not any('\u30A0' <= c <= '\u30FF' for c in p)):
+            translated.append(p)
+            continue
+        # Check exact match in SEGMENT_VOCAB
         if p in SEGMENT_VOCAB:
             translated.append(SEGMENT_VOCAB[p])
         elif p in SINGLE_VOCAB:
             translated.append(SINGLE_VOCAB[p])
+        elif p in ADDITIONAL_VOCAB:
+            translated.append(ADDITIONAL_VOCAB[p])
         else:
             translated.append(p)
 
     result = ' '.join(translated)
+    result = re.sub(r'\s+', ' ', result).strip()
+    # Clean up artifacts
+    result = re.sub(r'1er Cru Cru\b', '1er Cru', result)
+    result = re.sub(r'\bde de\b', 'de', result)  # "de de Vogüé" → "de Vogüé"
+    result = re.sub(r'\bComte de Vogüé\b', "Comte de Vogüé", result)
+    # Handle "E.ギガル" → split the period-attached prefix
+    result = re.sub(r'([A-Z])\.([\u30A0-\u30FF])', r'\1. \2', result)
     result = re.sub(r'\s+', ' ', result).strip()
     return result
 
