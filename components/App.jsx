@@ -1724,12 +1724,12 @@ function WineListManager({ storeId, categoryId, stores, categories, onBack, onRe
 }
 
 // ===== WineListStorePicker — matches Beverage Compass リスト tab =====
-function WineListStorePicker({ stores, categories, onOpenStore, onOpenPrint }) {
-  const [wlStats, setWlStats] = useState(null);
+function WineListStorePicker({ stores, categories, onOpenStore, onOpenPrint, onNavigate }) {
+  const [stats, setStats] = useState(null);
   const [selectedStore, setSelectedStore] = useState(null);
 
   useEffect(() => {
-    fetch('/api/wine-list/stats').then(r => r.json()).then(d => setWlStats(d)).catch(() => setWlStats({ stores: {} }));
+    fetch('/api/stats').then(r => r.json()).then(d => setStats(d)).catch(() => setStats({ stores: {} }));
   }, []);
 
   const getStoreName = (store) => {
@@ -1754,10 +1754,10 @@ function WineListStorePicker({ stores, categories, onOpenStore, onOpenPrint }) {
     return (
       <div style={{ padding:'16px 16px 100px' }}>
         <div style={{ fontSize:18, fontWeight:400, letterSpacing:2, color:C.tx, fontFamily:EL, marginBottom:16 }}>
-          ワインリスト
+          在庫一覧
         </div>
         {stores.map(store => {
-          const ss = wlStats?.stores?.[store.id];
+          const ss = stats?.stores?.[store.id];
           if (!ss || ss.total === 0) return null;
           return (
             <div key={store.id} onClick={() => setSelectedStore(store)}
@@ -1786,7 +1786,7 @@ function WineListStorePicker({ stores, categories, onOpenStore, onOpenPrint }) {
   }
 
   // Category view for selected store
-  const ss = wlStats?.stores?.[selectedStore.id] || { categories: {}, total: 0 };
+  const ss = stats?.stores?.[selectedStore.id] || { categories: {}, total: 0, totalQty: 0, totalValue: 0 };
   const storeName = getStoreName(selectedStore);
 
   return (
@@ -1803,24 +1803,31 @@ function WineListStorePicker({ stores, categories, onOpenStore, onOpenPrint }) {
       </div>
 
       <div style={{ padding:'12px 16px 100px' }}>
-        {/* Print Preview Button */}
-        <button onClick={() => onOpenPrint(selectedStore.id)} style={{
-          width:'100%', padding:'13px', borderRadius:2, border:'none',
-          background:'#3A3630', color:'#fff', fontSize:13, fontWeight:500,
-          fontFamily:F, cursor:'pointer', letterSpacing:'3px', marginBottom:16,
-        }}>
-          印刷プレビュー
-        </button>
+        {/* Summary */}
+        <div style={{ display:'flex', gap:12, marginBottom:16, padding:'10px 14px', background:'linear-gradient(135deg, #E0DBCF 0%, #D5D0C6 100%)', borderRadius:2, border:`1px solid ${C.bd}` }}>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:9, color:'rgba(74,68,64,0.45)', fontFamily:F }}>在庫</div>
+            <div style={{ fontSize:16, fontWeight:700, fontFamily:F }}>{ss.total}種</div>
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:9, color:'rgba(74,68,64,0.45)', fontFamily:F }}>本数</div>
+            <div style={{ fontSize:16, fontWeight:700, fontFamily:F }}>{Math.round(ss.totalQty || 0).toLocaleString()}本</div>
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:9, color:'rgba(74,68,64,0.45)', fontFamily:F }}>総額</div>
+            <div style={{ fontSize:16, fontWeight:700, color:C.acc, fontFamily:F }}>{fmtY(Math.round(ss.totalValue || 0))}</div>
+          </div>
+        </div>
 
         {/* Category cards */}
         {categories.filter(c => !c.parent_id).map(cat => {
-          const catWl = ss.categories?.[cat.id];
-          if (!catWl || catWl.count === 0) return null;
+          const catSt = ss.categories?.[cat.id];
+          if (!catSt || catSt.count === 0) return null;
           // Get subcategory names
           const subCats = categories.filter(sc => sc.parent_id === cat.id);
           const subNames = subCats.map(sc => sc.name_en || sc.name).join(' · ');
           return (
-            <div key={cat.id} onClick={() => onOpenStore(selectedStore.id, cat.id)}
+            <div key={cat.id} onClick={() => onNavigate('list-items', { store: selectedStore.id, category: cat.id, title: `${storeName} · ${cat.name}` })}
               style={{
                 background:C.card, borderRadius:2, padding:'14px 18px',
                 border:`1px solid ${C.bd}`, marginBottom:5, cursor:'pointer',
@@ -1832,18 +1839,21 @@ function WineListStorePicker({ stores, categories, onOpenStore, onOpenPrint }) {
                     <div style={{ fontSize:10, color:C.sub, marginTop:3, fontFamily:F }}>{subNames}</div>
                   )}
                 </div>
-                <div style={{ fontSize:13, fontWeight:700, color:C.tx, fontFamily:F, flexShrink:0 }}>{catWl.count}種</div>
+                <div style={{ textAlign:'right', flexShrink:0 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:C.tx, fontFamily:F }}>{catSt.count}種</div>
+                  <div style={{ fontSize:10, color:C.sub, fontFamily:F }}>{Math.round(catSt.qty || 0)}本</div>
+                </div>
               </div>
             </div>
           );
         })}
 
-        {/* リスト管理 button */}
-        <button onClick={() => onOpenStore(selectedStore.id)} style={{
+        {/* 全アイテム表示 button */}
+        <button onClick={() => onNavigate('list-items', { store: selectedStore.id, title: `${storeName} · 全在庫` })} style={{
           width:'100%', padding:'12px', borderRadius:2, marginTop:12,
           border:`1px solid ${C.acc}`, background:'transparent',
           fontSize:12, fontFamily:F, color:C.acc, cursor:'pointer', fontWeight:600,
-        }}>リスト管理（全カテゴリ）</button>
+        }}>全カテゴリを表示</button>
       </div>
     </div>
   );
@@ -2420,7 +2430,7 @@ export default function App() {
       case 'home': return <HomeView key={homeKey} stores={stores} categories={categories} onNavigate={navigate} onWineList={openWineList} onWineListPrint={openWineListPrint} />;
       case 'search': return <GlobalSearch stores={stores} onSelect={setSelected} />;
       case 'stock': return <StockManager stores={stores} onNavigate={navigate} onImport={() => setShowImport(true)} onPhotoImport={() => setShowPhotoImport(true)} onPhotoRemoval={() => setShowPhotoRemoval(true)} />;
-      case 'list': return <WineListStorePicker stores={stores} categories={categories} onOpenStore={openWineList} onOpenPrint={openWineListPrint} />;
+      case 'list': return <WineListStorePicker stores={stores} categories={categories} onOpenStore={openWineList} onOpenPrint={openWineListPrint} onNavigate={navigate} />;
       case 'settings': return (
         <div style={{ padding:'16px 16px 100px' }}>
           <div style={{ fontSize:18, fontWeight:400, letterSpacing:2, color:C.tx, fontFamily:EL, marginBottom:16 }}>設定</div>
