@@ -191,16 +191,18 @@ function HomeView({ stores, categories, onNavigate }) {
     if (stores.length === 0) return;
     const fetchSummary = async () => {
       const summaries = {};
+      // Fetch per-store stats with category counts
       for (const store of stores) {
         try {
-          const r = await fetch(`/api/beverages?store=${store.id}&limit=1`);
+          const r = await fetch(`/api/stats?store=${store.id}`);
           const data = await r.json();
-          summaries[store.id] = { total: data.total || 0 };
-        } catch(e) { summaries[store.id] = { total: 0 }; }
+          summaries[store.id] = { total: data.total || 0, categories: data.categories || {} };
+        } catch(e) { summaries[store.id] = { total: 0, categories: {} }; }
       }
       setStoreSummary(summaries);
+      // Fetch global total
       try {
-        const r = await fetch('/api/beverages?limit=1');
+        const r = await fetch('/api/stats');
         const data = await r.json();
         setTotalItems(data.total || 0);
       } catch(e) {}
@@ -257,10 +259,13 @@ function HomeView({ stores, categories, onNavigate }) {
             </div>
             {isOpen && (
               <div style={{ padding:'10px 8px', display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                {categories.filter(c => !c.parent_id).map(cat => (
-                  <CatCard key={cat.id} label={cat.name} count={0} qty={0}
-                    onClick={() => onNavigate('list-items', { store: store.id, category: cat.id, title: `${store.name} · ${cat.name}` })} />
-                ))}
+                {categories.filter(c => !c.parent_id).map(cat => {
+                  const catStats = summary.categories?.[cat.id] || { count: 0, qty: 0 };
+                  return (
+                    <CatCard key={cat.id} label={cat.name} count={catStats.count} qty={catStats.qty}
+                      onClick={() => onNavigate('list-items', { store: store.id, category: cat.id, title: `${store.name} · ${cat.name}` })} />
+                  );
+                })}
               </div>
             )}
           </div>
