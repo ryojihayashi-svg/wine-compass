@@ -938,6 +938,12 @@ function WineListPrint({ storeId, stores, onBack }) {
   const [allStoreData, setAllStoreData] = useState({});
   const [selectedStore, setSelectedStore] = useState(storeId || null);
   const [printMode, setPrintMode] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [editingItem, setEditingItem] = useState(null); // { id, field, value }
+  const [toast, setToast] = useState('');
+  const [dragItem, setDragItem] = useState(null); // { sectionIdx, itemIdx }
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2000); };
 
   // Fetch wine list items for all stores or specific store
   const fetchData = useCallback(async () => {
@@ -949,7 +955,6 @@ function WineListPrint({ storeId, stores, onBack }) {
         setSections(d.sections || []);
         setAllStoreData({ [storeId]: d.sections || [] });
       } else {
-        // Fetch all stores
         const storeIds = stores.map(s => s.id);
         const results = {};
         await Promise.all(storeIds.map(async (sid) => {
@@ -985,6 +990,76 @@ function WineListPrint({ storeId, stores, onBack }) {
   const storeNameEn = store?.name_en || '';
   const availableStores = Object.keys(allStoreData);
 
+  // ---- Edit handlers ----
+  const startEdit = (item, field) => {
+    if (!editMode) return;
+    setEditingItem({ id: item.id, field, value: item[field] ?? '' });
+  };
+
+  const saveEdit = async () => {
+    if (!editingItem) return;
+    const { id, field, value } = editingItem;
+    try {
+      const updates = {};
+      if (field === 'sell_price_incl') {
+        updates[field] = value === '' ? null : parseInt(value, 10);
+      } else {
+        updates[field] = value || null;
+      }
+      const r = await fetch('/api/wine-list-items', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, updates }),
+      });
+      if (r.ok) {
+        // Update local state
+        setSections(prev => prev.map(sec => ({
+          ...sec,
+          items: sec.items.map(it => it.id === id ? { ...it, ...updates } : it),
+        })));
+        showToast('保存しました');
+      }
+    } catch(e) { showToast('エラー'); }
+    setEditingItem(null);
+  };
+
+  const deleteItem = async (itemId) => {
+    try {
+      const r = await fetch(`/api/wine-list-items?id=${itemId}`, { method: 'DELETE' });
+      if (r.ok) {
+        setSections(prev => prev.map(sec => ({
+          ...sec,
+          items: sec.items.filter(it => it.id !== itemId),
+        })).filter(sec => sec.items.length > 0));
+        showToast('削除しました');
+      }
+    } catch(e) { showToast('エラー'); }
+  };
+
+  const moveItem = async (secIdx, itemIdx, direction) => {
+    const sec = sections[secIdx];
+    if (!sec) return;
+    const newIdx = itemIdx + direction;
+    if (newIdx < 0 || newIdx >= sec.items.length) return;
+
+    const newItems = [...sec.items];
+    [newItems[itemIdx], newItems[newIdx]] = [newItems[newIdx], newItems[itemIdx]];
+
+    // Update sort orders
+    const reorder = newItems.map((it, i) => ({ id: it.id, sort_order: i }));
+    const newSections = [...sections];
+    newSections[secIdx] = { ...sec, items: newItems.map((it, i) => ({ ...it, sort_order: i })) };
+    setSections(newSections);
+
+    try {
+      await fetch('/api/wine-list-items', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reorder }),
+      });
+    } catch(e) {}
+  };
+
   const handlePrint = () => {
     setPrintMode(true);
     setTimeout(() => {
@@ -1009,72 +1084,79 @@ function WineListPrint({ storeId, stores, onBack }) {
         <style>{`
           @media print {
             body { margin:0; padding:0; }
-            .wine-list-print { max-width:100% !important; padding:20px 24px !important; }
+            .wine-list-print { max-width:100% !important; padding:0 !important; }
             .no-print { display:none !important; }
-            @page { margin: 15mm 12mm; size: A4; }
+            .print-section { page-break-inside:avoid; }
+            .print-section-break { page-break-before:always; }
+            @page { margin: 18mm 14mm; size: A4; }
           }
         `}</style>
         {/* Cover */}
-        <div style={{ textAlign:'center', marginBottom:48, pageBreakAfter:'always' }}>
-          <div style={{ height:'35vh' }} />
-          <div style={{ fontSize:11, letterSpacing:6, color:'#B0A89A', fontFamily:"'DM Sans',sans-serif", marginBottom:16 }}>WINE LIST</div>
-          <div style={{ width:40, height:1, background:'#D4AF37', margin:'0 auto 24px' }} />
-          <div style={{ fontSize:32, fontWeight:300, letterSpacing:6, color:'#2A2520', fontFamily:"'Cormorant Garamond',serif" }}>
+        <div style={{ textAlign:'center', pageBreakAfter:'always', display:'flex', flexDirection:'column', justifyContent:'center', minHeight:'80vh' }}>
+          <div style={{ fontSize:11, letterSpacing:6, color:'#B0A89A', fontFamily:"'DM Sans',sans-serif", marginBottom:16, textTransform:'uppercase' }}>Wine List</div>
+          <div style={{ width:50, height:1, background:'#D4AF37', margin:'0 auto 28px' }} />
+          <div style={{ fontSize:36, fontWeight:300, letterSpacing:8, color:'#2A2520', fontFamily:"'Cormorant Garamond',serif" }}>
             {storeName}
           </div>
           {storeNameEn && (
-            <div style={{ fontSize:14, fontWeight:300, letterSpacing:3, color:'#A09A8C', marginTop:8, fontFamily:"'Cormorant Garamond',serif" }}>
+            <div style={{ fontSize:15, fontWeight:300, letterSpacing:4, color:'#A09A8C', marginTop:10, fontFamily:"'Cormorant Garamond',serif" }}>
               {storeNameEn}
             </div>
           )}
-          <div style={{ fontSize:10, color:'#C0B8A8', marginTop:32, fontFamily:"'DM Sans',sans-serif" }}>
-            Price includes tax
+          <div style={{ width:50, height:1, background:'#D4AF37', margin:'28px auto 0' }} />
+          <div style={{ fontSize:10, color:'#C0B8A8', marginTop:24, fontFamily:"'DM Sans',sans-serif", letterSpacing:2 }}>
+            PRICE INCLUDES TAX
           </div>
         </div>
 
         {/* Sections */}
-        {sections.map((sec, si) => (
-          <div key={si} style={{ marginBottom:36, pageBreakInside:'avoid' }}>
-            {/* Section Header */}
-            <div style={{ textAlign:'center', marginBottom:20 }}>
-              <div style={{ fontSize:18, fontWeight:400, letterSpacing:4, color:'#2A2520', fontFamily:"'Cormorant Garamond',serif" }}>
-                {sec.section_en || sec.section}
-              </div>
-              <div style={{ fontSize:11, color:'#A09A8C', letterSpacing:2, marginTop:4, fontFamily:"'Shippori Mincho',serif" }}>
-                {sec.section}
-              </div>
-              <div style={{ width:24, height:1, background:'#D4AF37', margin:'8px auto 0' }} />
-            </div>
-
-            {/* Items */}
-            {sec.items.map((item, ii) => (
-              <div key={ii} style={{ marginBottom:10, paddingBottom:8, borderBottom:'1px solid #F0EDE8' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline' }}>
-                  <div style={{ flex:1, marginRight:12 }}>
-                    <span style={{ fontSize:13, fontWeight:400, color:'#2A2520', fontFamily:"'Cormorant Garamond',serif", letterSpacing:0.5 }}>
-                      {item.vintage && <span style={{ color:'#A09A8C', marginRight:6 }}>{item.vintage}</span>}
-                      {item.name_en}
-                    </span>
-                    {item.producer_en && (
-                      <span style={{ fontSize:11, color:'#B0A89A', fontFamily:"'Cormorant Garamond',serif", marginLeft:6 }}>
-                        / {item.producer_en}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize:13, fontWeight:400, color:'#2A2520', fontFamily:"'DM Sans',sans-serif", whiteSpace:'nowrap' }}>
-                    {item.sell_price_incl ? `¥${item.sell_price_incl.toLocaleString()}` : ''}
-                  </div>
+        {sections.map((sec, si) => {
+          // Large sections break before; small sections avoid break inside
+          const isLarge = sec.items.length > 12;
+          return (
+            <div key={si} className={isLarge ? 'print-section-break' : 'print-section'}
+              style={{ marginBottom:32, ...(isLarge ? { pageBreakBefore:'always' } : { pageBreakInside:'avoid' }) }}>
+              {/* Section Header */}
+              <div style={{ textAlign:'center', marginBottom:18, paddingTop: isLarge ? 8 : 0 }}>
+                <div style={{ fontSize:18, fontWeight:400, letterSpacing:5, color:'#2A2520', fontFamily:"'Cormorant Garamond',serif", textTransform:'uppercase' }}>
+                  {sec.section_en || sec.section}
                 </div>
-                {item.name_jp && (
-                  <div style={{ fontSize:10, color:'#A09A8C', fontFamily:"'Shippori Mincho',serif", marginTop:2, letterSpacing:0.5 }}>
-                    {item.name_jp}
-                    {item.producer_jp && ` / ${item.producer_jp}`}
-                  </div>
-                )}
+                <div style={{ fontSize:10.5, color:'#A09A8C', letterSpacing:2, marginTop:4, fontFamily:"'Shippori Mincho',serif" }}>
+                  {sec.section}
+                </div>
+                <div style={{ width:24, height:1, background:'#D4AF37', margin:'8px auto 0' }} />
               </div>
-            ))}
-          </div>
-        ))}
+
+              {/* Items */}
+              {sec.items.map((item, ii) => (
+                <div key={ii} style={{ marginBottom:8, paddingBottom:7, borderBottom:'1px solid #F0EDE8' }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline' }}>
+                    <div style={{ flex:1, marginRight:12 }}>
+                      <span style={{ fontSize:13, fontWeight:400, color:'#2A2520', fontFamily:"'Cormorant Garamond',serif", letterSpacing:0.5 }}>
+                        {item.vintage && <span style={{ color:'#A09A8C', marginRight:6, fontSize:12 }}>{item.vintage}</span>}
+                        {item.name_en}
+                      </span>
+                      {item.producer_en && (
+                        <span style={{ fontSize:11, color:'#B0A89A', fontFamily:"'Cormorant Garamond',serif", marginLeft:6 }}>
+                          / {item.producer_en}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize:13, fontWeight:400, color:'#2A2520', fontFamily:"'DM Sans',sans-serif", whiteSpace:'nowrap' }}>
+                      {item.sell_price_incl ? `¥${item.sell_price_incl.toLocaleString()}` : ''}
+                    </div>
+                  </div>
+                  {item.name_jp && (
+                    <div style={{ fontSize:9.5, color:'#A09A8C', fontFamily:"'Shippori Mincho',serif", marginTop:2, letterSpacing:0.5 }}>
+                      {item.name_jp}
+                      {item.producer_jp && ` / ${item.producer_jp}`}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -1082,6 +1164,14 @@ function WineListPrint({ storeId, stores, onBack }) {
   // Normal mode: preview with controls
   return (
     <div style={{ minHeight:'100vh', background:C.bg, fontFamily:F }}>
+      {/* Toast */}
+      {toast && (
+        <div style={{ position:'fixed', top:16, left:'50%', transform:'translateX(-50%)', zIndex:100,
+          background:'#2A2520', color:'#fff', padding:'8px 20px', borderRadius:4, fontSize:12, fontFamily:F, boxShadow:'0 2px 12px rgba(0,0,0,0.15)' }}>
+          {toast}
+        </div>
+      )}
+
       {/* Header */}
       <div className="no-print" style={{ position:'sticky', top:0, zIndex:10, background:C.bg, borderBottom:`1px solid ${C.bd}`, padding:'12px 16px' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
@@ -1089,16 +1179,25 @@ function WineListPrint({ storeId, stores, onBack }) {
             <button onClick={onBack} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}><IcoBack /></button>
             <div>
               <div style={{ fontSize:15, fontWeight:400, letterSpacing:1, color:C.tx, fontFamily:EL }}>Wine List</div>
-              <div style={{ fontSize:10, color:C.sub }}>ワインリスト印刷</div>
+              <div style={{ fontSize:10, color:C.sub }}>ワインリスト印刷・編集</div>
             </div>
           </div>
-          <button onClick={handlePrint} style={{
-            padding:'8px 20px', borderRadius:2, border:'none',
-            background:C.tx, color:'#fff', fontSize:12, fontFamily:F,
-            cursor:'pointer', fontWeight:500, letterSpacing:1,
-          }}>
-            印刷
-          </button>
+          <div style={{ display:'flex', gap:6 }}>
+            <button onClick={() => setEditMode(!editMode)} style={{
+              padding:'8px 14px', borderRadius:2, border:`1px solid ${editMode ? '#C25050' : C.bd}`,
+              background: editMode ? '#C25050' : 'transparent', color: editMode ? '#fff' : C.tx,
+              fontSize:11, fontFamily:F, cursor:'pointer', fontWeight:500,
+            }}>
+              {editMode ? '編集終了' : '編集'}
+            </button>
+            <button onClick={handlePrint} style={{
+              padding:'8px 16px', borderRadius:2, border:'none',
+              background:C.tx, color:'#fff', fontSize:11, fontFamily:F,
+              cursor:'pointer', fontWeight:500, letterSpacing:1,
+            }}>
+              印刷
+            </button>
+          </div>
         </div>
 
         {/* Store selector */}
@@ -1122,7 +1221,7 @@ function WineListPrint({ storeId, stores, onBack }) {
       </div>
 
       {/* Preview */}
-      <div style={{ padding:'16px', maxWidth:700, margin:'0 auto' }}>
+      <div style={{ padding:'16px', maxWidth:700, margin:'0 auto', paddingBottom:80 }}>
         {sections.length === 0 ? (
           <div style={{ textAlign:'center', padding:40, color:C.sub }}>
             <div style={{ fontSize:13, marginBottom:8 }}>このストアのワインリストデータがありません</div>
@@ -1156,34 +1255,84 @@ function WineListPrint({ storeId, stores, onBack }) {
                     {sec.section_en || sec.section}
                   </div>
                   <div style={{ fontSize:10, color:C.sub, letterSpacing:1.5, marginTop:3, fontFamily:SR }}>
-                    {sec.section}
+                    {sec.section} · {sec.items.length}
                   </div>
                   <div style={{ width:20, height:1, background:C.gold, margin:'6px auto 0' }} />
                 </div>
 
                 {/* Items */}
                 {sec.items.map((item, ii) => (
-                  <div key={ii} style={{
-                    marginBottom:6, paddingBottom:6,
+                  <div key={item.id || ii} style={{
+                    marginBottom:editMode ? 2 : 6, paddingBottom:editMode ? 6 : 6,
+                    padding: editMode ? '6px 8px' : 0,
                     borderBottom:`1px solid ${C.bd}`,
+                    background: editMode ? '#fff' : 'transparent',
+                    borderRadius: editMode ? 4 : 0,
+                    ...(editMode ? { border:`1px solid ${C.bd}`, marginBottom:4 } : {}),
                   }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline' }}>
                       <div style={{ flex:1, marginRight:8 }}>
-                        <span style={{ fontSize:13, fontWeight:400, color:C.tx, fontFamily:EL, letterSpacing:0.3 }}>
-                          {item.vintage && <span style={{ color:C.sub, marginRight:5, fontSize:12 }}>{item.vintage}</span>}
-                          {item.name_en}
-                        </span>
-                        {item.producer_en && (
+                        {/* Wine name - editable in edit mode */}
+                        {editingItem?.id === item.id && editingItem?.field === 'name_en' ? (
+                          <input
+                            autoFocus
+                            value={editingItem.value}
+                            onChange={e => setEditingItem({ ...editingItem, value: e.target.value })}
+                            onBlur={saveEdit}
+                            onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingItem(null); }}
+                            style={{ fontSize:13, fontFamily:EL, color:C.tx, border:`1px solid ${C.acc}`, borderRadius:2, padding:'2px 6px', width:'100%', background:'#FFFCF5', outline:'none' }}
+                          />
+                        ) : (
+                          <span onClick={() => startEdit(item, 'name_en')} style={{ fontSize:13, fontWeight:400, color:C.tx, fontFamily:EL, letterSpacing:0.3, cursor: editMode ? 'pointer' : 'default' }}>
+                            {item.vintage && <span style={{ color:C.sub, marginRight:5, fontSize:12 }}>{item.vintage}</span>}
+                            {item.name_en}
+                          </span>
+                        )}
+                        {!editingItem && item.producer_en && (
                           <span style={{ fontSize:10.5, color:'#B0A89A', fontFamily:EL, marginLeft:5 }}>
                             / {item.producer_en}
                           </span>
                         )}
                       </div>
-                      <div style={{ fontSize:12, fontWeight:500, color:C.tx, fontFamily:F, whiteSpace:'nowrap' }}>
-                        {item.sell_price_incl ? `¥${item.sell_price_incl.toLocaleString()}` : ''}
+                      <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                        {/* Price - editable */}
+                        {editingItem?.id === item.id && editingItem?.field === 'sell_price_incl' ? (
+                          <input
+                            autoFocus
+                            type="number"
+                            value={editingItem.value}
+                            onChange={e => setEditingItem({ ...editingItem, value: e.target.value })}
+                            onBlur={saveEdit}
+                            onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingItem(null); }}
+                            style={{ fontSize:12, fontFamily:F, color:C.tx, border:`1px solid ${C.acc}`, borderRadius:2, padding:'2px 6px', width:80, textAlign:'right', background:'#FFFCF5', outline:'none' }}
+                          />
+                        ) : (
+                          <div onClick={() => startEdit(item, 'sell_price_incl')}
+                            style={{ fontSize:12, fontWeight:500, color:C.tx, fontFamily:F, whiteSpace:'nowrap', cursor: editMode ? 'pointer' : 'default',
+                              ...(editMode ? { padding:'2px 6px', borderRadius:2, background:'#F9F7F3', border:`1px solid ${C.bd}` } : {}) }}>
+                            {item.sell_price_incl ? `¥${item.sell_price_incl.toLocaleString()}` : editMode ? '¥---' : ''}
+                          </div>
+                        )}
+                        {/* Edit controls */}
+                        {editMode && (
+                          <div style={{ display:'flex', gap:2, marginLeft:4 }}>
+                            <button onClick={() => moveItem(si, ii, -1)} disabled={ii === 0}
+                              style={{ width:22, height:22, border:'none', background:'none', cursor: ii === 0 ? 'default' : 'pointer', fontSize:11, color: ii === 0 ? C.bd : C.sub, padding:0 }}>
+                              ▲
+                            </button>
+                            <button onClick={() => moveItem(si, ii, 1)} disabled={ii === sec.items.length - 1}
+                              style={{ width:22, height:22, border:'none', background:'none', cursor: ii === sec.items.length - 1 ? 'default' : 'pointer', fontSize:11, color: ii === sec.items.length - 1 ? C.bd : C.sub, padding:0 }}>
+                              ▼
+                            </button>
+                            <button onClick={() => { if (confirm(`「${item.name_en}」を削除しますか？`)) deleteItem(item.id); }}
+                              style={{ width:22, height:22, border:'none', background:'none', cursor:'pointer', fontSize:13, color:'#C25050', padding:0 }}>
+                              ×
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
-                    {item.name_jp && (
+                    {item.name_jp && !editingItem && (
                       <div style={{ fontSize:10, color:C.sub, fontFamily:SR, marginTop:1.5, letterSpacing:0.3 }}>
                         {item.name_jp}
                         {item.producer_jp && ` / ${item.producer_jp}`}
@@ -2042,6 +2191,19 @@ export default function App() {
       case 'settings': return (
         <div style={{ padding:'16px 16px 100px' }}>
           <div style={{ fontSize:18, fontWeight:400, letterSpacing:2, color:C.tx, fontFamily:EL, marginBottom:16 }}>設定</div>
+          {/* Wine List Print — global entry */}
+          <button onClick={() => openWineListPrint()} style={{
+            width:'100%', padding:14, borderRadius:2, border:`1px solid ${C.bd}`,
+            background:C.card, fontSize:13, fontFamily:F, cursor:'pointer', color:C.tx,
+            display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8,
+          }}>
+            <span style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={C.acc} strokeWidth={1.5}><path d="M6 2h12v6l-4 2 4 2v6H6v-6l4-2-4-2z"/><path d="M6 18H2v4h20v-4h-4"/></svg>
+              ワインリスト 印刷・編集
+            </span>
+            <span style={{ color:C.sub, fontSize:11 }}>全店舗 →</span>
+          </button>
+          <div style={{ height:16 }} />
           <button onClick={logout} style={{ width:'100%', padding:14, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.red }}>ログアウト</button>
         </div>
       );
