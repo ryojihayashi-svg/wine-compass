@@ -810,14 +810,19 @@ function PhotoRemoval({ stores, onClose, onRemoved }) {
 }
 
 // ===== StockManager =====
-function StockManager({ onNavigate, onImport, onPhotoImport, onPhotoRemoval }) {
+function StockManager({ onNavigate, onImport, onPhotoImport, onPhotoRemoval, stores }) {
+  const exportCSV = () => {
+    const url = `/api/export?format=csv`;
+    window.open(url, '_blank');
+  };
+
   const actions = [
     { icon: '📦', title: '在庫一覧', desc: '全アイテムを閲覧・管理', action: () => onNavigate('list-items', { title: '全在庫一覧' }) },
     { icon: '📷', title: '写真で入庫', desc: '納品書を撮影→AI読取→在庫追加', action: () => onPhotoImport() },
     { icon: '🍷', title: '写真で出庫', desc: 'ボトル撮影→AI識別→在庫-1', action: () => onPhotoRemoval() },
     { icon: '➕', title: '新規追加', desc: 'アイテムを手動で追加', action: () => onNavigate('add') },
     { icon: '📊', title: 'Excel取込', desc: 'Excelファイルから一括追加', action: () => onImport() },
-    { icon: '📋', title: 'CSV出力', desc: '在庫データをCSVでエクスポート', action: () => {} },
+    { icon: '📋', title: 'CSV出力', desc: '在庫データをCSVでエクスポート', action: exportCSV },
   ];
 
   return (
@@ -1159,7 +1164,7 @@ export default function App() {
     switch (tab) {
       case 'home': return <HomeView stores={stores} categories={categories} onNavigate={navigate} />;
       case 'search': return <GlobalSearch stores={stores} onSelect={setSelected} />;
-      case 'stock': return <StockManager onNavigate={navigate} onImport={() => setShowImport(true)} onPhotoImport={() => setShowPhotoImport(true)} onPhotoRemoval={() => setShowPhotoRemoval(true)} />;
+      case 'stock': return <StockManager stores={stores} onNavigate={navigate} onImport={() => setShowImport(true)} onPhotoImport={() => setShowPhotoImport(true)} onPhotoRemoval={() => setShowPhotoRemoval(true)} />;
       case 'list': return <ItemListPage title="全在庫一覧" stores={stores} categories={categories} onBack={() => setTab('home')} onSelect={setSelected} onAdd={() => setShowAdd(true)} />;
       case 'settings': return (
         <div style={{ padding:'16px 16px 100px' }}>
