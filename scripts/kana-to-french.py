@@ -373,7 +373,7 @@ SINGLE_VOCAB = {
     # Articles / prepositions
     'レ': 'Les', 'ラ': 'La', 'ル': 'Le', 'デ': 'des', 'デュ': 'du',
     'ド': 'de', 'エ': 'et', 'アン': 'En', 'オー': 'Aux', 'シュル': 'Sur',
-    'スー': 'Sous', 'ドゥ': 'de', 'オ': 'Au', 'ア': 'à',
+    'スー': 'Sous', 'ドゥ': 'de', 'オ': 'Au',
     # Common wine terms
     'グラン': 'Grand', 'グランド': 'Grande', 'クリュ': 'Cru',
     'プルミエ': '1er', 'プレミエ': '1er', '1er': '1er',
@@ -665,11 +665,11 @@ def katakana_to_french_producer(name):
 # --- Fetch current Burgundy items from API ---
 API = 'https://wine-compass.vercel.app'
 
-print('Fetching Burgundy items from API...')
+print('Fetching ALL items from API...')
 all_items = []
 page = 1
 while True:
-    resp = requests.get(f'{API}/api/beverages?store=burgundy&limit=200&page={page}', timeout=30)
+    resp = requests.get(f'{API}/api/beverages?limit=200&page={page}', timeout=60)
     data = resp.json()
     items = data.get('items', [])
     if not items:
@@ -678,20 +678,27 @@ while True:
     if len(all_items) >= data.get('total', 0):
         break
     page += 1
+    if page % 10 == 0:
+        try:
+            print(f'  ... {len(all_items)} items fetched (page {page})')
+        except:
+            pass
 
 print(f'Fetched {len(all_items)} items')
 
 # --- Generate French names ---
 updates = []
 for item in all_items:
-    name_ja = item['name']
+    # Use name_kana (original katakana) as source if available, else name
+    name_ja = item.get('name_kana') or item['name']
+    current_name = item['name']
     producer_ja = item.get('producer', '')
 
     name_fr = katakana_to_french(name_ja)
     producer_fr = katakana_to_french_producer(producer_ja) if producer_ja else None
 
-    # Only update if we actually converted something
-    if name_fr != name_ja or (producer_fr and producer_fr != producer_ja):
+    # Only update if converted name differs from CURRENT name in DB
+    if name_fr != current_name or (producer_fr and producer_fr != producer_ja):
         updates.append({
             'id': item['id'],
             'name_fr': name_fr,
