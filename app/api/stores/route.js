@@ -37,3 +37,29 @@ export async function POST(req) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data, { status: 201 });
 }
+
+// PATCH /api/stores — batch update stores
+export async function PATCH(req) {
+  const body = await req.json();
+  const supabase = sb();
+  const results = [];
+
+  for (const store of (body.stores || [])) {
+    const update = {};
+    if (store.name) update.name = store.name;
+    if (store.name_en) update.name_en = store.name_en;
+    if (store.sort_order != null) update.sort_order = store.sort_order;
+    if (store.color) update.color = store.color;
+
+    const { data, error } = await supabase
+      .from('wc_stores')
+      .update(update)
+      .eq('id', store.id)
+      .select()
+      .single();
+
+    results.push({ id: store.id, ok: !error, error: error?.message });
+  }
+
+  return NextResponse.json({ results });
+}
