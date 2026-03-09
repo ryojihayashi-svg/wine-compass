@@ -990,6 +990,9 @@ function WineListPrint({ storeId, stores, onBack }) {
   const storeNameEn = store?.name_en || '';
   const availableStores = Object.keys(allStoreData);
 
+  const [addingToSection, setAddingToSection] = useState(null); // section index for add form
+  const [newItem, setNewItem] = useState({ name_en:'', name_jp:'', producer_en:'', vintage:'', sell_price_incl:'', glass_price:'' });
+
   // ---- Edit handlers ----
   const startEdit = (item, field) => {
     if (!editMode) return;
@@ -1001,7 +1004,7 @@ function WineListPrint({ storeId, stores, onBack }) {
     const { id, field, value } = editingItem;
     try {
       const updates = {};
-      if (field === 'sell_price_incl') {
+      if (field === 'sell_price_incl' || field === 'glass_price') {
         updates[field] = value === '' ? null : parseInt(value, 10);
       } else {
         updates[field] = value || null;
@@ -1012,7 +1015,6 @@ function WineListPrint({ storeId, stores, onBack }) {
         body: JSON.stringify({ id, updates }),
       });
       if (r.ok) {
-        // Update local state
         setSections(prev => prev.map(sec => ({
           ...sec,
           items: sec.items.map(it => it.id === id ? { ...it, ...updates } : it),
@@ -1045,7 +1047,6 @@ function WineListPrint({ storeId, stores, onBack }) {
     const newItems = [...sec.items];
     [newItems[itemIdx], newItems[newIdx]] = [newItems[newIdx], newItems[itemIdx]];
 
-    // Update sort orders
     const reorder = newItems.map((it, i) => ({ id: it.id, sort_order: i }));
     const newSections = [...sections];
     newSections[secIdx] = { ...sec, items: newItems.map((it, i) => ({ ...it, sort_order: i })) };
@@ -1058,6 +1059,41 @@ function WineListPrint({ storeId, stores, onBack }) {
         body: JSON.stringify({ reorder }),
       });
     } catch(e) {}
+  };
+
+  const addItem = async (secIdx) => {
+    if (!newItem.name_en.trim()) { showToast('ワイン名(EN)を入力してください'); return; }
+    const sec = sections[secIdx];
+    const item = {
+      store_id: selectedStore,
+      section: sec.section,
+      section_en: sec.section_en,
+      section_order: sec.section_order,
+      name_en: newItem.name_en.trim(),
+      name_jp: newItem.name_jp.trim() || null,
+      producer_en: newItem.producer_en.trim() || null,
+      vintage: newItem.vintage.trim() || null,
+      sell_price_incl: newItem.sell_price_incl ? parseInt(newItem.sell_price_incl, 10) : null,
+      glass_price: newItem.glass_price ? parseInt(newItem.glass_price, 10) : null,
+      sort_order: sec.items.length,
+    };
+    try {
+      const r = await fetch('/api/wine-list-items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ store_id: selectedStore, items: [item] }),
+      });
+      if (r.ok) {
+        showToast('追加しました');
+        setAddingToSection(null);
+        setNewItem({ name_en:'', name_jp:'', producer_en:'', vintage:'', sell_price_incl:'', glass_price:'' });
+        // Refresh data to get new IDs
+        const fr = await fetch(`/api/wine-list-items?store=${selectedStore}`);
+        const fd = await fr.json();
+        setSections(fd.sections || []);
+        setAllStoreData(prev => ({ ...prev, [selectedStore]: fd.sections || [] }));
+      }
+    } catch(e) { showToast('エラー'); }
   };
 
   const handlePrint = () => {
@@ -1142,8 +1178,15 @@ function WineListPrint({ storeId, stores, onBack }) {
                         </span>
                       )}
                     </div>
-                    <div style={{ fontSize:13, fontWeight:400, color:'#2A2520', fontFamily:"'DM Sans',sans-serif", whiteSpace:'nowrap' }}>
-                      {item.sell_price_incl ? `¥${item.sell_price_incl.toLocaleString()}` : ''}
+                    <div style={{ textAlign:'right', whiteSpace:'nowrap' }}>
+                      <div style={{ fontSize:13, fontWeight:400, color:'#2A2520', fontFamily:"'DM Sans',sans-serif" }}>
+                        {item.sell_price_incl ? `¥${item.sell_price_incl.toLocaleString()}` : ''}
+                      </div>
+                      {item.glass_price && (
+                        <div style={{ fontSize:10, color:'#B0A89A', fontFamily:"'DM Sans',sans-serif", marginTop:1 }}>
+                          Glass ¥{item.glass_price.toLocaleString()}
+                        </div>
+                      )}
                     </div>
                   </div>
                   {item.name_jp && (
@@ -1261,7 +1304,20 @@ function WineListPrint({ storeId, stores, onBack }) {
                 </div>
 
                 {/* Items */}
-                {sec.items.map((item, ii) => (
+                {sec.items.map((item, ii) => {
+                  const isEditing = editingItem?.id === item.id;
+                  const ef = editingItem?.field;
+                  const editInput = (field, placeholder, style2) => (
+                    isEditing && ef === field ? (
+                      <input autoFocus value={editingItem.value}
+                        onChange={e => setEditingItem({ ...editingItem, value: e.target.value })}
+                        onBlur={saveEdit}
+                        onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingItem(null); }}
+                        style={{ border:`1px solid ${C.acc}`, borderRadius:2, padding:'2px 6px', background:'#FFFCF5', outline:'none', ...style2 }}
+                      />
+                    ) : null
+                  );
+                  return (
                   <div key={item.id || ii} style={{
                     marginBottom:editMode ? 2 : 6, paddingBottom:editMode ? 6 : 6,
                     padding: editMode ? '6px 8px' : 0,
@@ -1272,43 +1328,32 @@ function WineListPrint({ storeId, stores, onBack }) {
                   }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline' }}>
                       <div style={{ flex:1, marginRight:8 }}>
-                        {/* Wine name - editable in edit mode */}
-                        {editingItem?.id === item.id && editingItem?.field === 'name_en' ? (
-                          <input
-                            autoFocus
-                            value={editingItem.value}
-                            onChange={e => setEditingItem({ ...editingItem, value: e.target.value })}
-                            onBlur={saveEdit}
-                            onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingItem(null); }}
-                            style={{ fontSize:13, fontFamily:EL, color:C.tx, border:`1px solid ${C.acc}`, borderRadius:2, padding:'2px 6px', width:'100%', background:'#FFFCF5', outline:'none' }}
-                          />
-                        ) : (
-                          <span onClick={() => startEdit(item, 'name_en')} style={{ fontSize:13, fontWeight:400, color:C.tx, fontFamily:EL, letterSpacing:0.3, cursor: editMode ? 'pointer' : 'default' }}>
-                            {item.vintage && <span style={{ color:C.sub, marginRight:5, fontSize:12 }}>{item.vintage}</span>}
+                        {/* Vintage - editable */}
+                        {editInput('vintage', 'NV', { fontSize:12, fontFamily:F, color:C.sub, width:50 }) || (
+                          item.vintage && <span onClick={() => startEdit(item, 'vintage')}
+                            style={{ color:C.sub, marginRight:5, fontSize:12, cursor: editMode ? 'pointer' : 'default' }}>{item.vintage}</span>
+                        )}
+                        {/* Wine name - editable */}
+                        {editInput('name_en', 'Wine name', { fontSize:13, fontFamily:EL, color:C.tx, width:'70%' }) || (
+                          <span onClick={() => startEdit(item, 'name_en')}
+                            style={{ fontSize:13, fontWeight:400, color:C.tx, fontFamily:EL, letterSpacing:0.3, cursor: editMode ? 'pointer' : 'default' }}>
                             {item.name_en}
                           </span>
                         )}
-                        {!editingItem && item.producer_en && (
-                          <span style={{ fontSize:10.5, color:'#B0A89A', fontFamily:EL, marginLeft:5 }}>
+                        {/* Producer - editable */}
+                        {!isEditing && item.producer_en && (
+                          <span onClick={() => startEdit(item, 'producer_en')}
+                            style={{ fontSize:10.5, color:'#B0A89A', fontFamily:EL, marginLeft:5, cursor: editMode ? 'pointer' : 'default' }}>
                             / {item.producer_en}
                           </span>
                         )}
+                        {editInput('producer_en', 'Producer', { fontSize:11, fontFamily:EL, color:'#B0A89A', width:'60%', marginTop:2 })}
                       </div>
                       <div style={{ display:'flex', alignItems:'center', gap:4 }}>
                         {/* Price - editable */}
-                        {editingItem?.id === item.id && editingItem?.field === 'sell_price_incl' ? (
-                          <input
-                            autoFocus
-                            type="number"
-                            value={editingItem.value}
-                            onChange={e => setEditingItem({ ...editingItem, value: e.target.value })}
-                            onBlur={saveEdit}
-                            onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingItem(null); }}
-                            style={{ fontSize:12, fontFamily:F, color:C.tx, border:`1px solid ${C.acc}`, borderRadius:2, padding:'2px 6px', width:80, textAlign:'right', background:'#FFFCF5', outline:'none' }}
-                          />
-                        ) : (
+                        {editInput('sell_price_incl', '0', { fontSize:12, fontFamily:F, color:C.tx, width:80, textAlign:'right' }) || (
                           <div onClick={() => startEdit(item, 'sell_price_incl')}
-                            style={{ fontSize:12, fontWeight:500, color:C.tx, fontFamily:F, whiteSpace:'nowrap', cursor: editMode ? 'pointer' : 'default',
+                            style={{ fontSize:12, fontWeight:500, color:C.tx, fontFamily:F, whiteSpace:'nowrap', cursor: editMode ? 'pointer' : 'default', textAlign:'right',
                               ...(editMode ? { padding:'2px 6px', borderRadius:2, background:'#F9F7F3', border:`1px solid ${C.bd}` } : {}) }}>
                             {item.sell_price_incl ? `¥${item.sell_price_incl.toLocaleString()}` : editMode ? '¥---' : ''}
                           </div>
@@ -1317,29 +1362,89 @@ function WineListPrint({ storeId, stores, onBack }) {
                         {editMode && (
                           <div style={{ display:'flex', gap:2, marginLeft:4 }}>
                             <button onClick={() => moveItem(si, ii, -1)} disabled={ii === 0}
-                              style={{ width:22, height:22, border:'none', background:'none', cursor: ii === 0 ? 'default' : 'pointer', fontSize:11, color: ii === 0 ? C.bd : C.sub, padding:0 }}>
-                              ▲
-                            </button>
+                              style={{ width:22, height:22, border:'none', background:'none', cursor: ii === 0 ? 'default' : 'pointer', fontSize:11, color: ii === 0 ? C.bd : C.sub, padding:0 }}>▲</button>
                             <button onClick={() => moveItem(si, ii, 1)} disabled={ii === sec.items.length - 1}
-                              style={{ width:22, height:22, border:'none', background:'none', cursor: ii === sec.items.length - 1 ? 'default' : 'pointer', fontSize:11, color: ii === sec.items.length - 1 ? C.bd : C.sub, padding:0 }}>
-                              ▼
-                            </button>
+                              style={{ width:22, height:22, border:'none', background:'none', cursor: ii === sec.items.length - 1 ? 'default' : 'pointer', fontSize:11, color: ii === sec.items.length - 1 ? C.bd : C.sub, padding:0 }}>▼</button>
                             <button onClick={() => { if (confirm(`「${item.name_en}」を削除しますか？`)) deleteItem(item.id); }}
-                              style={{ width:22, height:22, border:'none', background:'none', cursor:'pointer', fontSize:13, color:'#C25050', padding:0 }}>
-                              ×
-                            </button>
+                              style={{ width:22, height:22, border:'none', background:'none', cursor:'pointer', fontSize:13, color:'#C25050', padding:0 }}>×</button>
                           </div>
                         )}
                       </div>
                     </div>
-                    {item.name_jp && !editingItem && (
-                      <div style={{ fontSize:10, color:C.sub, fontFamily:SR, marginTop:1.5, letterSpacing:0.3 }}>
-                        {item.name_jp}
-                        {item.producer_jp && ` / ${item.producer_jp}`}
+                    {/* Second row: JP name + glass price */}
+                    {!isEditing && (
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginTop:1.5 }}>
+                        <div style={{ flex:1 }}>
+                          {item.name_jp && (
+                            <span onClick={() => startEdit(item, 'name_jp')}
+                              style={{ fontSize:10, color:C.sub, fontFamily:SR, letterSpacing:0.3, cursor: editMode ? 'pointer' : 'default' }}>
+                              {item.name_jp}{item.producer_jp && ` / ${item.producer_jp}`}
+                            </span>
+                          )}
+                          {editMode && !item.name_jp && (
+                            <span onClick={() => startEdit(item, 'name_jp')}
+                              style={{ fontSize:10, color:C.bd, fontFamily:SR, cursor:'pointer' }}>+ 日本語名</span>
+                          )}
+                        </div>
+                        {item.glass_price && (
+                          <span onClick={() => startEdit(item, 'glass_price')}
+                            style={{ fontSize:10, color:'#B0A89A', fontFamily:F, cursor: editMode ? 'pointer' : 'default',
+                              ...(editMode ? { padding:'1px 4px', borderRadius:2, background:'#F9F7F3', border:`1px solid ${C.bd}` } : {}) }}>
+                            Glass ¥{item.glass_price.toLocaleString()}
+                          </span>
+                        )}
+                        {editMode && !item.glass_price && (
+                          <span onClick={() => startEdit(item, 'glass_price')}
+                            style={{ fontSize:10, color:C.bd, fontFamily:F, cursor:'pointer', padding:'1px 4px' }}>+ Glass</span>
+                        )}
                       </div>
                     )}
+                    {/* Inline edit for JP name */}
+                    {editInput('name_jp', '日本語名', { fontSize:10, fontFamily:SR, color:C.sub, width:'100%', marginTop:2 })}
+                    {editInput('glass_price', '0', { fontSize:11, fontFamily:F, color:C.tx, width:70, textAlign:'right', marginTop:2 })}
                   </div>
-                ))}
+                  );
+                })}
+                {/* Add item button */}
+                {editMode && (
+                  addingToSection === si ? (
+                    <div style={{ background:'#FFFCF5', border:`1px dashed ${C.acc}`, borderRadius:4, padding:'10px 10px', marginTop:6 }}>
+                      <div style={{ fontSize:11, fontWeight:600, color:C.acc, marginBottom:8, fontFamily:F }}>新規アイテム追加</div>
+                      <div style={{ display:'flex', gap:6, marginBottom:6 }}>
+                        <input placeholder="Vintage" value={newItem.vintage} onChange={e => setNewItem({...newItem, vintage:e.target.value})}
+                          style={{ width:55, fontSize:11, fontFamily:F, padding:'4px 6px', border:`1px solid ${C.bd}`, borderRadius:2, outline:'none' }} />
+                        <input placeholder="Wine Name (EN) *" value={newItem.name_en} onChange={e => setNewItem({...newItem, name_en:e.target.value})}
+                          style={{ flex:1, fontSize:11, fontFamily:EL, padding:'4px 6px', border:`1px solid ${C.bd}`, borderRadius:2, outline:'none' }} />
+                      </div>
+                      <div style={{ display:'flex', gap:6, marginBottom:6 }}>
+                        <input placeholder="Producer (EN)" value={newItem.producer_en} onChange={e => setNewItem({...newItem, producer_en:e.target.value})}
+                          style={{ flex:1, fontSize:11, fontFamily:EL, padding:'4px 6px', border:`1px solid ${C.bd}`, borderRadius:2, outline:'none' }} />
+                        <input placeholder="日本語名" value={newItem.name_jp} onChange={e => setNewItem({...newItem, name_jp:e.target.value})}
+                          style={{ flex:1, fontSize:11, fontFamily:SR, padding:'4px 6px', border:`1px solid ${C.bd}`, borderRadius:2, outline:'none' }} />
+                      </div>
+                      <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                        <input placeholder="税込価格" type="number" value={newItem.sell_price_incl} onChange={e => setNewItem({...newItem, sell_price_incl:e.target.value})}
+                          style={{ width:90, fontSize:11, fontFamily:F, padding:'4px 6px', border:`1px solid ${C.bd}`, borderRadius:2, outline:'none' }} />
+                        <input placeholder="Glass価格" type="number" value={newItem.glass_price} onChange={e => setNewItem({...newItem, glass_price:e.target.value})}
+                          style={{ width:90, fontSize:11, fontFamily:F, padding:'4px 6px', border:`1px solid ${C.bd}`, borderRadius:2, outline:'none' }} />
+                        <div style={{ flex:1 }} />
+                        <button onClick={() => { setAddingToSection(null); setNewItem({ name_en:'', name_jp:'', producer_en:'', vintage:'', sell_price_incl:'', glass_price:'' }); }}
+                          style={{ padding:'5px 12px', border:`1px solid ${C.bd}`, background:'transparent', borderRadius:2, fontSize:11, fontFamily:F, cursor:'pointer', color:C.sub }}>
+                          取消
+                        </button>
+                        <button onClick={() => addItem(si)}
+                          style={{ padding:'5px 14px', border:'none', background:C.acc, borderRadius:2, fontSize:11, fontFamily:F, cursor:'pointer', color:'#fff', fontWeight:600 }}>
+                          追加
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={() => { setAddingToSection(si); setNewItem({ name_en:'', name_jp:'', producer_en:'', vintage:'', sell_price_incl:'', glass_price:'' }); }}
+                      style={{ width:'100%', padding:'8px', border:`1px dashed ${C.bd}`, background:'transparent', borderRadius:4, fontSize:11, fontFamily:F, cursor:'pointer', color:C.sub, marginTop:6, letterSpacing:1 }}>
+                      ＋ アイテム追加
+                    </button>
+                  )
+                )}
               </div>
             ))}
           </>
