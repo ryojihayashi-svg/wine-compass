@@ -1820,9 +1820,10 @@ function ItemListPage({ title, storeId, categoryId, stores, categories, onBack, 
             <div style={{ position:'absolute', left:0, top:4, bottom:4, width:3, background: storeColor[item.store_id] || C.acc, opacity:0.6, borderRadius:'0 2px 2px 0' }} />
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
               <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
-                <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>{item.producer || ''}{item.vintage ? ` · ${item.vintage}` : ''}</div>
-                {item.region && <div style={{ fontSize:10, color:C.sub, marginTop:2 }}>{item.region}{item.appellation ? ` · ${item.appellation}` : ''}</div>}
+                {item.producer && <div style={{ fontSize:9, color:C.sub, letterSpacing:0.5, marginBottom:1 }}>{item.producer}{item.vintage ? ` · ${item.vintage}` : ''}</div>}
+                <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, lineHeight:1.3 }}>{item.vintage && !item.producer ? `${item.vintage} ` : ''}{item.name}</div>
+                {item.name_kana && item.name_kana !== item.name && <div style={{ fontSize:10, color:C.sub, marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name_kana}</div>}
+                {!item.producer && item.vintage && <div style={{ fontSize:10, color:C.sub, marginTop:1 }}>{item.vintage}</div>}
               </div>
               <div style={{ flexShrink:0, marginLeft:8, textAlign:'right' }}>
                 <QBadge q={item.quantity} />
@@ -2070,6 +2071,7 @@ function DetailModal({ item, stores, categories, onClose, onSave, onDelete }) {
               {item.name}
               {vt && <span style={{ fontWeight:400, fontSize:18, color:'#8A8478', marginLeft:6, fontFamily:F }}>{vt}</span>}
             </div>
+            {item.name_kana && item.name_kana !== item.name && <div style={{ fontSize:11, color:'#A09A8C', marginTop:3, fontFamily:F }}>{item.name_kana}</div>}
 
             {/* Region / Category line */}
             <div style={{ display:'flex', alignItems:'center', gap:5, marginTop:8 }}>

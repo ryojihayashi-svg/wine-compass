@@ -19,49 +19,28 @@ export async function GET(req) {
 
   const supabase = sb();
 
-  // Try RPC first, fall back to direct query
-  const { data, error } = await supabase.rpc('wc_search_beverages', {
-    p_store_id: store,
-    p_category_id: category,
-    p_query: q,
-    p_in_stock: stock === 'true' ? true : stock === 'false' ? false : null,
-    p_limit: limit,
-    p_offset: offset,
-  });
+  // Direct query — includes name_kana for bilingual display
+  let query = supabase
+    .from('wc_beverages')
+    .select('*, wc_categories(name, name_en, parent_id)', { count: 'exact' })
+    .eq('is_deleted', false)
+    .order('name', { ascending: true })
+    .range(offset, offset + limit - 1);
 
-  if (error) {
-    // Fallback: direct query if RPC not yet created
-    let query = supabase
-      .from('wc_beverages')
-      .select('*, wc_categories(name, name_en, parent_id)', { count: 'exact' })
-      .eq('is_deleted', false)
-      .order('name', { ascending: true })
-      .range(offset, offset + limit - 1);
+  if (store) query = query.eq('store_id', store);
+  if (category) query = query.eq('category_id', category);
+  if (q) query = query.or(`name.ilike.%${q}%,producer.ilike.%${q}%,name_kana.ilike.%${q}%`);
+  if (stock === 'true') query = query.gt('quantity', 0);
 
-    if (store) query = query.eq('store_id', store);
-    if (category) query = query.eq('category_id', category);
-    if (q) query = query.or(`name.ilike.%${q}%,producer.ilike.%${q}%`);
-    if (stock === 'true') query = query.gt('quantity', 0);
+  const { data: items, count, error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    const { data: items, count, error: err2 } = await query;
-    if (err2) return NextResponse.json({ error: err2.message }, { status: 500 });
-
-    return NextResponse.json({
-      items: items || [],
-      total: count || 0,
-      page,
-      pageSize: limit,
-      totalPages: Math.ceil((count || 0) / limit),
-    });
-  }
-
-  const total = data?.[0]?.total_count || 0;
   return NextResponse.json({
-    items: data || [],
-    total: Number(total),
+    items: items || [],
+    total: count || 0,
     page,
     pageSize: limit,
-    totalPages: Math.ceil(Number(total) / limit),
+    totalPages: Math.ceil((count || 0) / limit),
   });
 }
 
