@@ -414,8 +414,8 @@ function GlobalSearch({ stores, onSelect }) {
     }, 300);
   }, [q]);
 
-  const storeColor = {};
-  stores.forEach(s => { storeColor[s.id] = s.color || '#4A6352'; });
+  const storeColor = {}, storeName = {};
+  stores.forEach(s => { storeColor[s.id] = s.color || '#4A6352'; storeName[s.id] = s.name || s.id; });
 
   return (
     <div style={{ minHeight:'100vh', background:C.bg }}>
@@ -442,6 +442,10 @@ function GlobalSearch({ stores, onSelect }) {
                 {item.producer && <div style={{ fontSize:9, color:'#A09A8C', fontFamily:F, letterSpacing:0.3 }}>{item.producer}</div>}
                 <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, lineHeight:1.35, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}{item.vintage && <span style={{ fontWeight:400, fontSize:12, color:'#8A8478', marginLeft:3, fontFamily:F }}>{item.vintage}</span>}</div>
                 {item.name_kana && item.name_kana !== item.name && <div style={{ fontSize:10, color:'#B0AA9C', fontFamily:"'Noto Sans JP',sans-serif", marginTop:1 }}>{item.name_kana}</div>}
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:3 }}>
+                  <span style={{ fontSize:8, padding:'1px 6px', borderRadius:4, background:storeColor[item.store_id]||C.acc, color:'#fff', fontFamily:F }}>{storeName[item.store_id]||''}</span>
+                  <span style={{ fontSize:9, color:'#B0AA9C', padding:'1px 5px', borderRadius:4, background:'#F0EDE8' }}>在庫</span>
+                </div>
               </div>
               <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:3, flexShrink:0, marginLeft:10 }}>
                 <QBadge q={item.quantity} />
