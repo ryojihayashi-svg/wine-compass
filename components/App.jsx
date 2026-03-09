@@ -307,6 +307,7 @@ function HomeView({ stores, categories, onNavigate, onWineList, onWineListPrint 
                   {storeWlStats && storeWlStats.total > 0 && (
                     <div style={{ display:'flex', alignItems:'center', gap:6, justifyContent:'flex-end', marginTop:3 }}>
                       <span style={{ fontSize:10, color:'rgba(74,68,64,0.4)', fontFamily:F }}>リスト {storeWlStats.total}種</span>
+                      {storeWlStats.totalValue > 0 && <span style={{ fontSize:10, color:C.acc, fontWeight:600, fontFamily:F }}>{fmtY(Math.round(storeWlStats.totalValue))}</span>}
                     </div>
                   )}
                 </div>
