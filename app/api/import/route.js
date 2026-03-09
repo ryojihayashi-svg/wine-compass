@@ -87,7 +87,7 @@ export async function DELETE(req) {
     const storeId = url.searchParams.get('store');
     const supabase = sb();
 
-    // First delete logs
+    // First delete related data
     if (storeId) {
       // Get beverage IDs for this store
       const { data: beverages } = await supabase
@@ -97,6 +97,11 @@ export async function DELETE(req) {
 
       if (beverages && beverages.length > 0) {
         const ids = beverages.map(b => b.id);
+        // Delete wine list items referencing these beverages (FK constraint)
+        for (let i = 0; i < ids.length; i += 100) {
+          const batch = ids.slice(i, i + 100);
+          await supabase.from('wc_wine_list').delete().in('beverage_id', batch);
+        }
         // Delete logs in batches
         for (let i = 0; i < ids.length; i += 100) {
           const batch = ids.slice(i, i + 100);
@@ -114,7 +119,8 @@ export async function DELETE(req) {
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ deleted: data?.length || 0 });
     } else {
-      // Delete all logs then all beverages
+      // Delete all wine list items, logs, then beverages
+      await supabase.from('wc_wine_list').delete().neq('id', '00000000-0000-0000-0000-000000000000');
       await supabase.from('wc_inventory_log').delete().neq('id', 0);
       const { data, error } = await supabase
         .from('wc_beverages')
