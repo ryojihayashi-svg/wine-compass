@@ -190,20 +190,27 @@ const fmtY = (n) => {
 };
 
 // ===== HomeView — matches Beverage Compass UI =====
-function HomeView({ stores, categories, onNavigate }) {
+function HomeView({ stores, categories, onNavigate, onWineList }) {
   const [openSection, setOpenSection] = useState(null);
   const [stats, setStats] = useState(null);
+  const [wlStats, setWlStats] = useState(null);
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const r = await fetch('/api/stats');
-        const data = await r.json();
-        setStats(data);
-      } catch(e) { setStats({ total: 0, totalQty: 0, totalValue: 0, stores: {}, storeCount: 0, categories: {} }); }
-    };
-    fetchStats();
+  const fetchAllStats = useCallback(async () => {
+    try {
+      const [r1, r2] = await Promise.all([
+        fetch('/api/stats'),
+        fetch('/api/wine-list/stats'),
+      ]);
+      const d1 = await r1.json();
+      setStats(d1);
+      try { const d2 = await r2.json(); setWlStats(d2); } catch(e) { setWlStats({ stores: {}, total: 0 }); }
+    } catch(e) {
+      setStats({ total: 0, totalQty: 0, totalValue: 0, stores: {}, storeCount: 0, categories: {} });
+      setWlStats({ stores: {}, total: 0 });
+    }
   }, []);
+
+  useEffect(() => { fetchAllStats(); }, [fetchAllStats]);
 
   const toggleSection = (sectionId) => {
     setOpenSection(prev => prev === sectionId ? null : sectionId);
@@ -265,7 +272,8 @@ function HomeView({ stores, categories, onNavigate }) {
       {/* Store Cards */}
       {stores.map(store => {
         const storeStats = stats?.stores?.[store.id] || null;
-        const hasData = storeStats && storeStats.total > 0;
+        const storeWlStats = wlStats?.stores?.[store.id] || null;
+        const hasData = (storeStats && storeStats.total > 0) || (storeWlStats && storeWlStats.total > 0);
         const invSec = 'inv-' + store.id;
         const wlSec = 'wl-' + store.id;
         const invOpen = openSection === invSec;
@@ -289,12 +297,18 @@ function HomeView({ stores, categories, onNavigate }) {
               </div>
               {hasData && (
                 <div style={{ textAlign:'right', flexShrink:0, marginLeft:12 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:6, justifyContent:'flex-end' }}>
-                    <span style={{ fontSize:11, color:'rgba(74,68,64,0.55)', fontFamily:F }}>{storeStats.total}種</span>
-                    <span style={{ fontSize:11, color:'rgba(74,68,64,0.55)', fontFamily:F }}>{Math.round(storeStats.totalQty).toLocaleString()}本</span>
-                    <span style={{ fontSize:11, color:C.acc, fontWeight:600, fontFamily:F }}>{fmtY(Math.round(storeStats.totalValue))}</span>
-                  </div>
-                  {/* リスト row — placeholder for future wine list feature */}
+                  {storeStats && storeStats.total > 0 && (
+                    <div style={{ display:'flex', alignItems:'center', gap:6, justifyContent:'flex-end' }}>
+                      <span style={{ fontSize:11, color:'rgba(74,68,64,0.55)', fontFamily:F }}>{storeStats.total}種</span>
+                      <span style={{ fontSize:11, color:'rgba(74,68,64,0.55)', fontFamily:F }}>{Math.round(storeStats.totalQty).toLocaleString()}本</span>
+                      <span style={{ fontSize:11, color:C.acc, fontWeight:600, fontFamily:F }}>{fmtY(Math.round(storeStats.totalValue))}</span>
+                    </div>
+                  )}
+                  {storeWlStats && storeWlStats.total > 0 && (
+                    <div style={{ display:'flex', alignItems:'center', gap:6, justifyContent:'flex-end', marginTop:3 }}>
+                      <span style={{ fontSize:10, color:'rgba(74,68,64,0.4)', fontFamily:F }}>リスト {storeWlStats.total}種</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -333,12 +347,32 @@ function HomeView({ stores, categories, onNavigate }) {
                     padding:'9px 16px', cursor:'pointer', display:'flex', alignItems:'center',
                     borderBottom: wlOpen ? `1px solid ${C.bd}` : 'none',
                   }}>
-                    <div style={{ fontSize:12, fontWeight:500, color:C.sub, flex:1 }}>リスト</div>
+                    <div style={{ fontSize:12, fontWeight:500, color:C.sub, flex:1 }}>
+                      リスト{storeWlStats?.total > 0 ? ` (${storeWlStats.total})` : ''}
+                    </div>
                     <Chev open={wlOpen} />
                   </div>
                   {wlOpen && (
                     <div style={{ padding:'8px 12px 10px' }}>
-                      <div style={{ fontSize:12, color:C.sub, textAlign:'center', padding:'16px 0' }}>ワインリスト機能は準備中です</div>
+                      {storeWlStats && storeWlStats.total > 0 ? (
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+                          {categories.filter(c => !c.parent_id).map(cat => {
+                            const catWl = storeWlStats.categories?.[cat.id];
+                            if (!catWl || catWl.count === 0) return null;
+                            return (
+                              <CatCard key={cat.id} label={cat.name} count={catWl.count} qty={catWl.count}
+                                onClick={() => onWineList(store.id, cat.id)} />
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize:12, color:C.sub, textAlign:'center', padding:'8px 0' }}>リストにアイテムなし</div>
+                      )}
+                      <button onClick={() => onWineList(store.id)} style={{
+                        width:'100%', marginTop:10, padding:'10px', borderRadius:2,
+                        border:`1px solid ${C.acc}`, background:'transparent',
+                        fontSize:12, fontFamily:F, color:C.acc, cursor:'pointer', fontWeight:600,
+                      }}>リスト管理</button>
                     </div>
                   )}
                 </div>
@@ -890,6 +924,267 @@ function PhotoRemoval({ stores, onClose, onRemoved }) {
   );
 }
 
+// ===== WineListManager =====
+function WineListManager({ storeId, categoryId, stores, categories, onBack, onRefreshHome }) {
+  const [wlItems, setWlItems] = useState([]);
+  const [invItems, setInvItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [mode, setMode] = useState('list'); // list | add
+  const [searchQ, setSearchQ] = useState('');
+  const [adding, setAdding] = useState(null); // beverage being added
+  const [addPrice, setAddPrice] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState('');
+  const debRef = useRef(null);
+
+  const store = stores.find(s => s.id === storeId);
+  const storeName = store?.name || storeId;
+
+  // Fetch wine list items
+  const fetchWineList = useCallback(async () => {
+    setLoading(true);
+    try {
+      let url = `/api/wine-list?store=${storeId}`;
+      if (categoryId) url += `&category=${categoryId}`;
+      const r = await fetch(url);
+      const data = await r.json();
+      setWlItems(data.items || []);
+    } catch(e) { setWlItems([]); }
+    setLoading(false);
+  }, [storeId, categoryId]);
+
+  useEffect(() => { fetchWineList(); }, [fetchWineList]);
+
+  // Search inventory items to add
+  const searchInventory = useCallback(async (q) => {
+    if (q.length < 2) { setInvItems([]); return; }
+    try {
+      const r = await fetch(`/api/beverages?q=${encodeURIComponent(q)}&limit=30`);
+      const data = await r.json();
+      // Exclude items already on this store's list
+      const onList = new Set(wlItems.map(wl => wl.beverage_id));
+      setInvItems((data.items || []).filter(i => !onList.has(i.id)));
+    } catch(e) { setInvItems([]); }
+  }, [wlItems]);
+
+  const onSearch = (val) => {
+    setSearchQ(val);
+    if (debRef.current) clearTimeout(debRef.current);
+    debRef.current = setTimeout(() => searchInventory(val), 300);
+  };
+
+  // Add to wine list
+  const addToList = async () => {
+    if (!adding) return;
+    setSaving(true);
+    try {
+      const r = await fetch('/api/wine-list', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          store_id: storeId,
+          beverage_id: adding.id,
+          sell_price: addPrice ? Number(addPrice) : (adding.price || null),
+        }),
+      });
+      if (r.ok) {
+        setToast(`「${adding.name}」をリストに追加`);
+        setAdding(null);
+        setAddPrice('');
+        setSearchQ('');
+        setInvItems([]);
+        await fetchWineList();
+        if (onRefreshHome) onRefreshHome();
+      }
+    } catch(e) { setToast('エラーが発生しました'); }
+    setSaving(false);
+  };
+
+  // Remove from wine list
+  const removeFromList = async (wlId, name) => {
+    if (!confirm(`「${name}」をリストから外しますか？`)) return;
+    try {
+      await fetch(`/api/wine-list?id=${wlId}`, { method: 'DELETE' });
+      setToast('リストから外しました');
+      await fetchWineList();
+      if (onRefreshHome) onRefreshHome();
+    } catch(e) { setToast('エラーが発生しました'); }
+  };
+
+  // Update sell price inline
+  const updatePrice = async (wlId, newPrice) => {
+    try {
+      await fetch('/api/wine-list', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: wlId, sell_price: newPrice ? Number(newPrice) : null }),
+      });
+      await fetchWineList();
+    } catch(e) {}
+  };
+
+  const storeColor = {};
+  stores.forEach(s => { storeColor[s.id] = s.color || '#4A6352'; });
+
+  const catTitle = categoryId ? (categories.find(c => c.id === categoryId)?.name || '') : '';
+
+  return (
+    <div style={{ minHeight:'100vh', background:C.bg }}>
+      {/* Header */}
+      <div style={{ padding:'12px 16px', display:'flex', alignItems:'center', gap:10, borderBottom:`1px solid ${C.bd}` }}>
+        <button onClick={onBack} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}><IcoBack /></button>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:15, fontWeight:500, fontFamily:SR, color:C.tx }}>
+            {storeName} リスト{catTitle ? ` · ${catTitle}` : ''}
+          </div>
+          <div style={{ fontSize:11, color:C.sub }}>{wlItems.length}種</div>
+        </div>
+      </div>
+
+      {/* Mode Tabs */}
+      <div style={{ display:'flex', borderBottom:`1px solid ${C.bd}` }}>
+        <button onClick={() => setMode('list')} style={{
+          flex:1, padding:'10px', border:'none', cursor:'pointer', fontSize:13, fontFamily:F,
+          background: mode === 'list' ? C.card : 'transparent',
+          color: mode === 'list' ? C.acc : C.sub,
+          fontWeight: mode === 'list' ? 600 : 400,
+          borderBottom: mode === 'list' ? `2px solid ${C.acc}` : '2px solid transparent',
+        }}>リスト一覧</button>
+        <button onClick={() => setMode('add')} style={{
+          flex:1, padding:'10px', border:'none', cursor:'pointer', fontSize:13, fontFamily:F,
+          background: mode === 'add' ? C.card : 'transparent',
+          color: mode === 'add' ? C.acc : C.sub,
+          fontWeight: mode === 'add' ? 600 : 400,
+          borderBottom: mode === 'add' ? `2px solid ${C.acc}` : '2px solid transparent',
+        }}>+ 在庫から追加</button>
+      </div>
+
+      <div style={{ padding:'12px 16px 100px' }}>
+        {mode === 'list' ? (
+          /* ===== Wine List View ===== */
+          loading ? (
+            <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>読み込み中...</div>
+          ) : wlItems.length === 0 ? (
+            <div style={{ textAlign:'center', padding:40 }}>
+              <div style={{ fontSize:13, color:C.sub, marginBottom:12 }}>リストにアイテムがありません</div>
+              <button onClick={() => setMode('add')} style={{
+                padding:'10px 24px', borderRadius:2, border:'none', background:C.acc,
+                color:'#fff', fontSize:13, fontFamily:F, fontWeight:600, cursor:'pointer',
+              }}>在庫から追加</button>
+            </div>
+          ) : wlItems.map(wl => {
+            const bev = wl.beverage || {};
+            return (
+              <div key={wl.id} style={{
+                background:C.card, borderRadius:1, padding:'12px 14px 12px 20px',
+                border:`1px solid ${C.bd}`, marginBottom:5, position:'relative',
+              }}>
+                <div style={{
+                  position:'absolute', left:0, top:4, bottom:4, width:3,
+                  background: storeColor[bev.store_id] || C.acc, opacity:0.6, borderRadius:'0 2px 2px 0',
+                }} />
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                      {bev.name || '-'}
+                    </div>
+                    <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>
+                      {bev.producer || ''}{bev.vintage ? ` · ${bev.vintage}` : ''}
+                    </div>
+                    <div style={{ display:'flex', gap:8, marginTop:4, alignItems:'center' }}>
+                      <div style={{ fontSize:12, color:C.acc, fontWeight:600 }}>
+                        {wl.sell_price ? fmt(wl.sell_price) : (bev.price ? fmt(bev.price) : '-')}
+                      </div>
+                      {bev.price && wl.sell_price && wl.sell_price !== bev.price && (
+                        <div style={{ fontSize:10, color:C.sub, textDecoration:'line-through' }}>{fmt(bev.price)}</div>
+                      )}
+                      <QBadge q={bev.quantity} />
+                    </div>
+                  </div>
+                  <button onClick={() => removeFromList(wl.id, bev.name)}
+                    style={{ flexShrink:0, marginLeft:8, padding:'6px 10px', borderRadius:2, border:`1px solid ${C.bd}`,
+                      background:'transparent', fontSize:11, color:C.sub, cursor:'pointer', fontFamily:F }}>外す</button>
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          /* ===== Add from Inventory ===== */
+          <>
+            <input autoFocus value={searchQ} onChange={e => onSearch(e.target.value)}
+              placeholder="在庫からワイン名・生産者で検索..."
+              style={{ width:'100%', padding:'10px 14px', border:`1px solid ${C.bd}`, borderRadius:10,
+                fontSize:14, fontFamily:F, background:C.card, outline:'none', boxSizing:'border-box', marginBottom:12 }} />
+
+            {/* Adding modal */}
+            {adding && (
+              <div style={{
+                background:'#F5F3EE', border:`1px solid ${C.acc}`, borderRadius:4,
+                padding:16, marginBottom:16,
+              }}>
+                <div style={{ fontSize:13, fontWeight:600, fontFamily:EL, color:C.tx, marginBottom:4 }}>{adding.name}</div>
+                <div style={{ fontSize:11, color:C.sub, marginBottom:12 }}>
+                  {adding.producer || ''}{adding.vintage ? ` · ${adding.vintage}` : ''}
+                  {adding.price ? ` · 仕入: ${fmt(adding.price)}` : ''}
+                </div>
+                <div style={{ marginBottom:12 }}>
+                  <div style={{ fontSize:10, color:C.sub, marginBottom:4, fontFamily:F, textTransform:'uppercase', letterSpacing:0.5 }}>リスト販売価格</div>
+                  <input type="number" value={addPrice} onChange={e => setAddPrice(e.target.value)}
+                    placeholder={adding.price ? String(Math.round(adding.price * 1.5)) : ''}
+                    style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2,
+                      fontSize:14, fontFamily:F, boxSizing:'border-box' }} />
+                  {adding.price && (
+                    <div style={{ fontSize:10, color:C.sub, marginTop:4 }}>
+                      参考: 仕入{fmt(adding.price)} → ×1.5 = {fmt(Math.round(adding.price * 1.5))} / ×2.0 = {fmt(Math.round(adding.price * 2))}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display:'flex', gap:10 }}>
+                  <button onClick={() => { setAdding(null); setAddPrice(''); }}
+                    style={{ flex:1, padding:'10px', borderRadius:2, border:`1px solid ${C.bd}`, background:C.card,
+                      fontSize:13, fontFamily:F, cursor:'pointer', color:C.tx }}>キャンセル</button>
+                  <button onClick={addToList} disabled={saving}
+                    style={{ flex:1, padding:'10px', borderRadius:2, border:'none', background:C.acc,
+                      color:'#fff', fontSize:13, fontFamily:F, fontWeight:600, cursor:'pointer' }}>
+                    {saving ? '...' : 'リストに追加'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {searchQ.length < 2 ? (
+              <div style={{ textAlign:'center', padding:30, color:C.sub, fontSize:13 }}>2文字以上で検索</div>
+            ) : invItems.length === 0 ? (
+              <div style={{ textAlign:'center', padding:30, color:C.sub, fontSize:13 }}>該当なし</div>
+            ) : invItems.map(item => (
+              <div key={item.id} onClick={() => { setAdding(item); setAddPrice(item.price ? String(Math.round(item.price * 1.5)) : ''); }}
+                style={{
+                  background:C.card, borderRadius:1, padding:'10px 14px 10px 20px',
+                  border:`1px solid ${adding?.id === item.id ? C.acc : C.bd}`, marginBottom:4,
+                  cursor:'pointer', position:'relative',
+                }}>
+                <div style={{ position:'absolute', left:0, top:4, bottom:4, width:3, background: storeColor[item.store_id] || C.acc, opacity:0.6, borderRadius:'0 2px 2px 0' }} />
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:600, fontFamily:EL, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
+                    <div style={{ fontSize:11, color:C.sub, marginTop:1 }}>{item.producer || ''}{item.vintage ? ` · ${item.vintage}` : ''}</div>
+                  </div>
+                  <div style={{ flexShrink:0, marginLeft:8, textAlign:'right' }}>
+                    <QBadge q={item.quantity} />
+                    {item.price != null && <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>{fmt(item.price)}</div>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+
+      {toast && <Toast msg={toast} onClose={() => setToast('')} />}
+    </div>
+  );
+}
+
 // ===== StockManager =====
 function StockManager({ onNavigate, onImport, onPhotoImport, onPhotoRemoval, stores }) {
   const exportCSV = () => {
@@ -1201,6 +1496,7 @@ export default function App() {
   const [showPhotoImport, setShowPhotoImport] = useState(false);
   const [showPhotoRemoval, setShowPhotoRemoval] = useState(false);
   const [toast, setToast] = useState('');
+  const [homeKey, setHomeKey] = useState(0); // for refreshing home view
 
   useEffect(() => {
     if (!ok) return;
@@ -1212,7 +1508,10 @@ export default function App() {
     if (type === 'add') { setShowAdd(true); return; }
     setSubView({ type, params });
   };
-  const goBack = () => setSubView(null);
+  const goBack = () => { setSubView(null); setHomeKey(k => k + 1); };
+  const openWineList = (storeId, categoryId) => {
+    setSubView({ type: 'wine-list', params: { store: storeId, category: categoryId } });
+  };
 
   const saveItem = async (id, updates) => {
     await fetch(`/api/beverages/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) });
@@ -1242,8 +1541,12 @@ export default function App() {
       return <ItemListPage title={subView.params.title} storeId={subView.params.store} categoryId={subView.params.category}
         stores={stores} categories={categories} onBack={goBack} onSelect={setSelected} onAdd={() => setShowAdd(true)} />;
     }
+    if (subView?.type === 'wine-list') {
+      return <WineListManager storeId={subView.params.store} categoryId={subView.params.category}
+        stores={stores} categories={categories} onBack={goBack} onRefreshHome={() => setHomeKey(k => k + 1)} />;
+    }
     switch (tab) {
-      case 'home': return <HomeView stores={stores} categories={categories} onNavigate={navigate} />;
+      case 'home': return <HomeView key={homeKey} stores={stores} categories={categories} onNavigate={navigate} onWineList={openWineList} />;
       case 'search': return <GlobalSearch stores={stores} onSelect={setSelected} />;
       case 'stock': return <StockManager stores={stores} onNavigate={navigate} onImport={() => setShowImport(true)} onPhotoImport={() => setShowPhotoImport(true)} onPhotoRemoval={() => setShowPhotoRemoval(true)} />;
       case 'list': return <ItemListPage title="全在庫一覧" stores={stores} categories={categories} onBack={() => setTab('home')} onSelect={setSelected} onAdd={() => setShowAdd(true)} />;
