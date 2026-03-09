@@ -22,14 +22,30 @@ export async function GET(req) {
       .order('sort_order');
 
     // Get all items (with price for value calc)
-    let query = supabase
-      .from('wc_beverages')
-      .select('category_id, quantity, store_id, price, cost_price')
-      .eq('is_deleted', false);
+    // Supabase default limit is 1000 — fetch all with pagination
+    let allItems = [];
+    let from = 0;
+    const PAGE = 5000;
 
-    if (storeId) query = query.eq('store_id', storeId);
+    while (true) {
+      let query = supabase
+        .from('wc_beverages')
+        .select('category_id, quantity, store_id, price, cost_price')
+        .eq('is_deleted', false)
+        .range(from, from + PAGE - 1);
 
-    const { data: items, error } = await query;
+      if (storeId) query = query.eq('store_id', storeId);
+
+      const { data: batch, error: batchErr } = await query;
+      if (batchErr) return NextResponse.json({ error: batchErr.message }, { status: 500 });
+      if (!batch || batch.length === 0) break;
+      allItems = allItems.concat(batch);
+      if (batch.length < PAGE) break;
+      from += PAGE;
+    }
+
+    const items = allItems;
+    const error = null;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     // Build parent-child map
