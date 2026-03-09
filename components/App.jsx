@@ -1961,7 +1961,7 @@ function ItemListPage({ title, storeId, categoryId, stores, categories, onBack, 
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', paddingLeft:4 }}>
               <div style={{ flex:1, minWidth:0 }}>
                 {item.producer && <div style={{ fontSize:9, color:'#A09A8C', fontFamily:F, letterSpacing:0.3, marginBottom:1 }}>{item.producer}</div>}
-                {(item.region || (item.wc_categories && !categoryId)) && <div style={{ fontSize:9, color:'#B0AA9C', fontFamily:F, marginTop:1 }}>{item.region || item.wc_categories?.name || ''}</div>}
+                {(item.region || item.wc_categories?.name) && <div style={{ fontSize:9, color:'#B0AA9C', fontFamily:F, marginTop:1 }}>{item.region || item.wc_categories?.name || ''}</div>}
                 <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, lineHeight:1.35 }}>{item.name}{item.vintage && <span style={{ fontWeight:400, fontSize:12, color:'#8A8478', marginLeft:3, fontFamily:F }}>{item.vintage}</span>}</div>
                 {item.name_kana && item.name_kana !== item.name && <div style={{ fontSize:10, color:'#B0AA9C', fontFamily:"'Noto Sans JP',sans-serif", marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name_kana}</div>}
               </div>
