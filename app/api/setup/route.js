@@ -43,62 +43,35 @@ export async function POST() {
   const errors = [];
 
   if (projectUrl && serviceKey) {
-    // Method 1: pg-meta /query endpoint (used by Supabase SQL Editor internally)
-    try {
-      const resp = await fetch(`${projectUrl}/pg/query`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': serviceKey,
-          'Authorization': `Bearer ${serviceKey}`,
-          'x-connection-encrypted': 'true',
-        },
-        body: JSON.stringify({ query: SQL }),
-      });
-      if (resp.ok) {
-        return NextResponse.json({ ok: true, message: 'Table created via pg/query', method: 1 });
-      }
-      errors.push({ method: 1, status: resp.status, body: await resp.text().catch(() => '') });
-    } catch(e) {
-      errors.push({ method: 1, error: e.message });
-    }
+    // Try many pg-meta endpoint patterns used by Supabase dashboard
+    const endpoints = [
+      '/pg-meta/default/query',
+      '/pg-meta/query',
+      '/pg/query',
+      '/pg/sql',
+    ];
 
-    // Method 2: pg-meta /sql endpoint
-    try {
-      const resp = await fetch(`${projectUrl}/pg/sql`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': serviceKey,
-          'Authorization': `Bearer ${serviceKey}`,
-        },
-        body: JSON.stringify({ sql: SQL }),
-      });
-      if (resp.ok) {
-        return NextResponse.json({ ok: true, message: 'Table created via pg/sql', method: 2 });
+    for (const ep of endpoints) {
+      try {
+        const resp = await fetch(`${projectUrl}${ep}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': serviceKey,
+            'Authorization': `Bearer ${serviceKey}`,
+            'x-connection-encrypted': 'true',
+          },
+          body: JSON.stringify({ query: SQL }),
+        });
+        const status = resp.status;
+        const body = await resp.text().catch(() => '');
+        errors.push({ endpoint: ep, status, body: body.substring(0, 200) });
+        if (resp.ok) {
+          return NextResponse.json({ ok: true, message: `Table created via ${ep}` });
+        }
+      } catch(e) {
+        errors.push({ endpoint: ep, error: e.message });
       }
-      errors.push({ method: 2, status: resp.status, body: await resp.text().catch(() => '') });
-    } catch(e) {
-      errors.push({ method: 2, error: e.message });
-    }
-
-    // Method 3: Direct REST RPC
-    try {
-      const resp = await fetch(`${projectUrl}/rest/v1/rpc/exec_sql`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': serviceKey,
-          'Authorization': `Bearer ${serviceKey}`,
-        },
-        body: JSON.stringify({ sql_text: SQL }),
-      });
-      if (resp.ok) {
-        return NextResponse.json({ ok: true, message: 'Table created via RPC', method: 3 });
-      }
-      errors.push({ method: 3, status: resp.status, body: await resp.text().catch(() => '') });
-    } catch(e) {
-      errors.push({ method: 3, error: e.message });
     }
   }
 
