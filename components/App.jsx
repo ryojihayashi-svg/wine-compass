@@ -482,14 +482,342 @@ function ExcelImport({ stores, categories, onClose, onImported }) {
   );
 }
 
+// ===== PhotoImport =====
+function PhotoImport({ stores, categories, onClose, onImported }) {
+  const [step, setStep] = useState('capture'); // capture | loading | preview | importing | done
+  const [items, setItems] = useState([]);
+  const [storeId, setStoreId] = useState(stores[0]?.id || '');
+  const [checked, setChecked] = useState({});
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+  const fileRef = useRef(null);
+
+  const handleCapture = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError('');
+    setStep('loading');
+
+    try {
+      // Convert to base64
+      const reader = new FileReader();
+      const base64 = await new Promise((resolve, reject) => {
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      // Send to AI API
+      const resp = await fetch('/api/ai/parse-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64 }),
+      });
+
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'AI解析エラー');
+      if (!data.items || data.items.length === 0) throw new Error('アイテムが見つかりませんでした');
+
+      setItems(data.items);
+      const c = {};
+      data.items.forEach((_, i) => { c[i] = true; });
+      setChecked(c);
+      setStep('preview');
+    } catch (err) {
+      setError(err.message);
+      setStep('capture');
+    }
+  };
+
+  const totalChecked = Object.values(checked).filter(Boolean).length;
+
+  const doImport = async () => {
+    if (!storeId) { setError('店舗を選択'); return; }
+    setStep('importing');
+    const selectedItems = items.filter((_, i) => checked[i]).map(item => ({
+      name: item.name || item.name_ja,
+      name_kana: item.name_ja || null,
+      vintage: item.vintage || null,
+      quantity: item.quantity || 1,
+      cost_price: item.cost_price || null,
+      producer: item.producer || null,
+      region: item.region || null,
+      notes: `AI入庫${item.name_ja ? ` / ${item.name_ja}` : ''}`,
+    }));
+
+    try {
+      const resp = await fetch('/api/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: selectedItems, store_id: storeId }),
+      });
+      const data = await resp.json();
+      setResult(data);
+      setStep('done');
+      if (data.inserted > 0) onImported();
+    } catch (err) {
+      setError('インポートエラー: ' + err.message);
+      setStep('preview');
+    }
+  };
+
+  return (
+    <BottomSheet open={true} onClose={onClose}>
+      {step === 'capture' && (
+        <div>
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:4 }}>写真で入庫</div>
+          <div style={{ fontSize:12, color:C.sub, marginBottom:16 }}>納品書・伝票を撮影するとAIがアイテムを読み取ります</div>
+          <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleCapture} style={{ display:'none' }} />
+          <div style={{ display:'flex', gap:10 }}>
+            <button onClick={() => fileRef.current?.click()} style={{
+              flex:1, padding:20, borderRadius:2, border:`2px dashed ${C.bd}`, background:'transparent',
+              fontSize:14, fontFamily:F, color:C.acc, cursor:'pointer', textAlign:'center',
+            }}>📷 撮影</button>
+          </div>
+          {error && <div style={{ color:C.red, fontSize:12, marginTop:12 }}>{error}</div>}
+        </div>
+      )}
+
+      {step === 'loading' && (
+        <div style={{ textAlign:'center', padding:40 }}>
+          <div style={{ fontSize:32, marginBottom:12 }}>🔍</div>
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:8 }}>AI解析中...</div>
+          <div style={{ fontSize:13, color:C.sub }}>納品書を読み取っています</div>
+        </div>
+      )}
+
+      {step === 'preview' && (
+        <div>
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:4 }}>読み取り結果</div>
+          <div style={{ fontSize:12, color:C.sub, marginBottom:12 }}>{totalChecked}/{items.length}件 選択中</div>
+
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:10, color:C.sub, marginBottom:4, textTransform:'uppercase', letterSpacing:0.5 }}>取込先店舗</div>
+            <select value={storeId} onChange={e => setStoreId(e.target.value)}
+              style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F }}>
+              {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+
+          <div style={{ maxHeight:'45vh', overflowY:'auto', marginBottom:12 }}>
+            {items.map((item, i) => (
+              <div key={i} style={{
+                padding:'10px 12px', marginBottom:4, background: checked[i] ? '#F5F3EE' : C.card,
+                border:`1px solid ${checked[i] ? C.acc : C.bd}`, borderRadius:2, cursor:'pointer',
+              }} onClick={() => setChecked(c => ({ ...c, [i]: !c[i] }))}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:500, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                      {item.vintage || 'NV'} {item.name || item.name_ja}
+                    </div>
+                    {item.name_ja && item.name && <div style={{ fontSize:11, color:C.sub }}>{item.name_ja}</div>}
+                    <div style={{ fontSize:10, color:C.sub, marginTop:2 }}>
+                      {item.producer || ''}{item.quantity ? ` · ${item.quantity}本` : ''}{item.cost_price ? ` · ¥${item.cost_price.toLocaleString()}` : ''}
+                    </div>
+                  </div>
+                  <div style={{ width:18, height:18, borderRadius:2, border:`2px solid ${checked[i] ? C.acc : C.bd}`,
+                    background: checked[i] ? C.acc : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginLeft:8, marginTop:2 }}>
+                    {checked[i] && <span style={{ color:'#fff', fontSize:12, fontWeight:700 }}>✓</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {error && <div style={{ color:C.red, fontSize:12, marginBottom:8 }}>{error}</div>}
+
+          <div style={{ display:'flex', gap:10 }}>
+            <button onClick={() => { setStep('capture'); setItems([]); setError(''); }} style={{ flex:1, padding:12, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.tx }}>撮り直し</button>
+            <button onClick={doImport} disabled={totalChecked === 0} style={{
+              flex:1, padding:12, borderRadius:2, border:'none', background: totalChecked > 0 ? C.acc : C.bd,
+              color:'#fff', fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer',
+            }}>{totalChecked}件を入庫</button>
+          </div>
+        </div>
+      )}
+
+      {step === 'importing' && (
+        <div style={{ textAlign:'center', padding:40 }}>
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx }}>入庫中...</div>
+        </div>
+      )}
+
+      {step === 'done' && result && (
+        <div style={{ textAlign:'center', padding:20 }}>
+          <div style={{ fontSize:40, marginBottom:12 }}>✅</div>
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:8 }}>入庫完了</div>
+          <div style={{ fontSize:14, color:C.green, fontWeight:600 }}>{result.inserted}件 追加しました</div>
+          <button onClick={onClose} style={{
+            marginTop:20, padding:'12px 32px', borderRadius:2, border:'none', background:C.acc,
+            color:'#fff', fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer',
+          }}>閉じる</button>
+        </div>
+      )}
+    </BottomSheet>
+  );
+}
+
+// ===== PhotoRemoval =====
+function PhotoRemoval({ stores, onClose, onRemoved }) {
+  const [step, setStep] = useState('capture'); // capture | loading | result
+  const [identified, setIdentified] = useState(null);
+  const [matches, setMatches] = useState([]);
+  const [storeId, setStoreId] = useState(stores[0]?.id || '');
+  const [error, setError] = useState('');
+  const [removing, setRemoving] = useState(null);
+  const fileRef = useRef(null);
+
+  const handleCapture = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError('');
+    setStep('loading');
+
+    try {
+      const reader = new FileReader();
+      const base64 = await new Promise((resolve, reject) => {
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const resp = await fetch('/api/ai/identify-bottle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64, store_id: storeId }),
+      });
+
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'AI識別エラー');
+
+      setIdentified(data.identified);
+      setMatches(data.matches || []);
+      setStep('result');
+    } catch (err) {
+      setError(err.message);
+      setStep('capture');
+    }
+  };
+
+  const removeOne = async (item) => {
+    if (item.quantity <= 0) return;
+    setRemoving(item.id);
+    try {
+      await fetch(`/api/beverages/${item.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity: Math.max(0, item.quantity - 1) }),
+      });
+      setMatches(prev => prev.map(m => m.id === item.id ? { ...m, quantity: m.quantity - 1 } : m));
+      onRemoved();
+    } catch (err) {
+      setError(err.message);
+    }
+    setRemoving(null);
+  };
+
+  return (
+    <BottomSheet open={true} onClose={onClose}>
+      {step === 'capture' && (
+        <div>
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:4 }}>写真で出庫</div>
+          <div style={{ fontSize:12, color:C.sub, marginBottom:12 }}>ボトルのラベルを撮影するとAIが銘柄を特定します</div>
+
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:10, color:C.sub, marginBottom:4, textTransform:'uppercase', letterSpacing:0.5 }}>対象店舗</div>
+            <select value={storeId} onChange={e => setStoreId(e.target.value)}
+              style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F }}>
+              {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+
+          <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleCapture} style={{ display:'none' }} />
+          <button onClick={() => fileRef.current?.click()} style={{
+            width:'100%', padding:20, borderRadius:2, border:`2px dashed ${C.bd}`, background:'transparent',
+            fontSize:14, fontFamily:F, color:C.acc, cursor:'pointer', textAlign:'center',
+          }}>📷 ラベルを撮影</button>
+          {error && <div style={{ color:C.red, fontSize:12, marginTop:12 }}>{error}</div>}
+        </div>
+      )}
+
+      {step === 'loading' && (
+        <div style={{ textAlign:'center', padding:40 }}>
+          <div style={{ fontSize:32, marginBottom:12 }}>🍷</div>
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:8 }}>ラベル解析中...</div>
+          <div style={{ fontSize:13, color:C.sub }}>ワインを特定しています</div>
+        </div>
+      )}
+
+      {step === 'result' && (
+        <div>
+          {identified && (
+            <div style={{ padding:12, background:'#F5F3EE', borderRadius:2, marginBottom:12, border:`1px solid ${C.bd}` }}>
+              <div style={{ fontSize:10, color:C.sub, marginBottom:4 }}>AI識別結果</div>
+              <div style={{ fontSize:14, fontWeight:500, color:C.tx, fontFamily:EL }}>{identified.name}</div>
+              {identified.name_ja && <div style={{ fontSize:12, color:C.sub }}>{identified.name_ja}</div>}
+              <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>
+                {identified.vintage || 'NV'} · {identified.producer || ''} · {identified.region || ''}
+              </div>
+            </div>
+          )}
+
+          <div style={{ fontSize:13, fontWeight:500, color:C.tx, marginBottom:8 }}>
+            在庫マッチ ({matches.length}件)
+          </div>
+
+          {matches.length === 0 ? (
+            <div style={{ textAlign:'center', padding:20, color:C.sub, fontSize:13 }}>該当する在庫が見つかりませんでした</div>
+          ) : (
+            <div style={{ maxHeight:'40vh', overflowY:'auto', marginBottom:12 }}>
+              {matches.map(item => (
+                <div key={item.id} style={{
+                  padding:'10px 12px', marginBottom:4, background:C.card,
+                  border:`1px solid ${C.bd}`, borderRadius:2,
+                  display:'flex', justifyContent:'space-between', alignItems:'center',
+                }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:500, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                      {item.vintage || 'NV'} {item.name}
+                    </div>
+                    <div style={{ marginTop:2 }}><QBadge q={item.quantity} /></div>
+                  </div>
+                  <button onClick={() => removeOne(item)} disabled={item.quantity <= 0 || removing === item.id}
+                    style={{
+                      padding:'8px 16px', borderRadius:2, border:'none',
+                      background: item.quantity > 0 ? C.red : C.bd, color:'#fff',
+                      fontSize:13, fontFamily:F, fontWeight:600, cursor: item.quantity > 0 ? 'pointer' : 'default',
+                      opacity: removing === item.id ? 0.5 : 1, flexShrink:0, marginLeft:8,
+                    }}>{removing === item.id ? '...' : '-1'}</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {error && <div style={{ color:C.red, fontSize:12, marginBottom:8 }}>{error}</div>}
+
+          <div style={{ display:'flex', gap:10 }}>
+            <button onClick={() => { setStep('capture'); setIdentified(null); setMatches([]); setError(''); }}
+              style={{ flex:1, padding:12, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.tx }}>撮り直し</button>
+            <button onClick={onClose} style={{
+              flex:1, padding:12, borderRadius:2, border:'none', background:C.acc,
+              color:'#fff', fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer',
+            }}>閉じる</button>
+          </div>
+        </div>
+      )}
+    </BottomSheet>
+  );
+}
+
 // ===== StockManager =====
-function StockManager({ onNavigate, onImport }) {
+function StockManager({ onNavigate, onImport, onPhotoImport, onPhotoRemoval }) {
   const actions = [
     { icon: '📦', title: '在庫一覧', desc: '全アイテムを閲覧・管理', action: () => onNavigate('list-items', { title: '全在庫一覧' }) },
+    { icon: '📷', title: '写真で入庫', desc: '納品書を撮影→AI読取→在庫追加', action: () => onPhotoImport() },
+    { icon: '🍷', title: '写真で出庫', desc: 'ボトル撮影→AI識別→在庫-1', action: () => onPhotoRemoval() },
     { icon: '➕', title: '新規追加', desc: 'アイテムを手動で追加', action: () => onNavigate('add') },
     { icon: '📊', title: 'Excel取込', desc: 'Excelファイルから一括追加', action: () => onImport() },
     { icon: '📋', title: 'CSV出力', desc: '在庫データをCSVでエクスポート', action: () => {} },
-    { icon: '🗑️', title: 'ゴミ箱', desc: '削除済みアイテムの復元', action: () => {} },
   ];
 
   return (
@@ -784,6 +1112,8 @@ export default function App() {
   const [selected, setSelected] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showPhotoImport, setShowPhotoImport] = useState(false);
+  const [showPhotoRemoval, setShowPhotoRemoval] = useState(false);
   const [toast, setToast] = useState('');
 
   useEffect(() => {
@@ -829,7 +1159,7 @@ export default function App() {
     switch (tab) {
       case 'home': return <HomeView stores={stores} categories={categories} onNavigate={navigate} />;
       case 'search': return <GlobalSearch stores={stores} onSelect={setSelected} />;
-      case 'stock': return <StockManager onNavigate={navigate} onImport={() => setShowImport(true)} />;
+      case 'stock': return <StockManager onNavigate={navigate} onImport={() => setShowImport(true)} onPhotoImport={() => setShowPhotoImport(true)} onPhotoRemoval={() => setShowPhotoRemoval(true)} />;
       case 'list': return <ItemListPage title="全在庫一覧" stores={stores} categories={categories} onBack={() => setTab('home')} onSelect={setSelected} onAdd={() => setShowAdd(true)} />;
       case 'settings': return (
         <div style={{ padding:'16px 16px 100px' }}>
@@ -848,6 +1178,8 @@ export default function App() {
       {selected && <DetailModal item={selected} stores={stores} categories={categories} onClose={() => setSelected(null)} onSave={saveItem} onDelete={deleteItem} />}
       {showAdd && <AddItemForm stores={stores} categories={categories} onClose={() => setShowAdd(false)} onAdd={addItem} />}
       {showImport && <ExcelImport stores={stores} categories={categories} onClose={() => setShowImport(false)} onImported={() => setToast('インポート完了')} />}
+      {showPhotoImport && <PhotoImport stores={stores} categories={categories} onClose={() => setShowPhotoImport(false)} onImported={() => setToast('写真入庫完了')} />}
+      {showPhotoRemoval && <PhotoRemoval stores={stores} onClose={() => setShowPhotoRemoval(false)} onRemoved={() => setToast('出庫しました')} />}
       <Toast msg={toast} onClose={() => setToast('')} />
       <style>{`
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
