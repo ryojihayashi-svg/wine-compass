@@ -1723,6 +1723,132 @@ function WineListManager({ storeId, categoryId, stores, categories, onBack, onRe
   );
 }
 
+// ===== WineListStorePicker — matches Beverage Compass リスト tab =====
+function WineListStorePicker({ stores, categories, onOpenStore, onOpenPrint }) {
+  const [wlStats, setWlStats] = useState(null);
+  const [selectedStore, setSelectedStore] = useState(null);
+
+  useEffect(() => {
+    fetch('/api/wine-list/stats').then(r => r.json()).then(d => setWlStats(d)).catch(() => setWlStats({ stores: {} }));
+  }, []);
+
+  const getStoreName = (store) => {
+    if (store.id === 'burgundy') return 'Burgundy';
+    if (store.id === 'ume') return 'umé';
+    if (store.id === 'ch') return 'C&H';
+    return store.name;
+  };
+  const getStoreSubName = (store) => {
+    if (store.id === 'burgundy') return 'Warehouse';
+    if (store.id === 'ch') return 'シェ・カルベール / Chez Calvert';
+    if (store.id === 'ume') return 'umé';
+    return store.name_en || '';
+  };
+  const getStoreFont = (store) => {
+    if (store.id === 'burgundy' || store.id === 'ume' || store.id === 'ch') return EL;
+    return SR;
+  };
+
+  // Store picker view
+  if (!selectedStore) {
+    return (
+      <div style={{ padding:'16px 16px 100px' }}>
+        <div style={{ fontSize:18, fontWeight:400, letterSpacing:2, color:C.tx, fontFamily:EL, marginBottom:16 }}>
+          ワインリスト
+        </div>
+        {stores.map(store => {
+          const ss = wlStats?.stores?.[store.id];
+          if (!ss || ss.total === 0) return null;
+          return (
+            <div key={store.id} onClick={() => setSelectedStore(store)}
+              style={{
+                background:C.card, borderRadius:2, padding:'16px 20px',
+                border:`1px solid ${C.bd}`, marginBottom:6, cursor:'pointer',
+                display:'flex', justifyContent:'space-between', alignItems:'center',
+              }}>
+              <div>
+                <div style={{ fontSize:18, fontWeight:400, fontFamily:getStoreFont(store), letterSpacing:'2px', color:C.tx }}>
+                  {getStoreName(store)}
+                </div>
+                <div style={{ fontSize:10, color:'rgba(74,68,64,0.5)', fontFamily:EL, letterSpacing:'1px', marginTop:2 }}>
+                  {getStoreSubName(store)}
+                </div>
+              </div>
+              <div style={{ textAlign:'right' }}>
+                <div style={{ fontSize:14, fontWeight:700, color:C.tx, fontFamily:F }}>{ss.total}種</div>
+                <div style={{ fontSize:11, color:C.acc, fontWeight:600, fontFamily:F }}>{fmtY(Math.round(ss.totalValue))}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // Category view for selected store
+  const ss = wlStats?.stores?.[selectedStore.id] || { categories: {}, total: 0 };
+  const storeName = getStoreName(selectedStore);
+
+  return (
+    <div style={{ minHeight:'100vh', background:C.bg }}>
+      {/* Header */}
+      <div style={{ padding:'12px 16px', display:'flex', alignItems:'center', gap:10, borderBottom:`1px solid ${C.bd}` }}>
+        <button onClick={() => setSelectedStore(null)} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}><IcoBack /></button>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:getStoreFont(selectedStore), color:C.tx, letterSpacing:'1.5px' }}>
+            {storeName}
+          </div>
+          <div style={{ fontSize:11, color:C.sub, fontFamily:F }}>ワインリスト · {ss.total}種</div>
+        </div>
+      </div>
+
+      <div style={{ padding:'12px 16px 100px' }}>
+        {/* Print Preview Button */}
+        <button onClick={() => onOpenPrint(selectedStore.id)} style={{
+          width:'100%', padding:'13px', borderRadius:2, border:'none',
+          background:'#3A3630', color:'#fff', fontSize:13, fontWeight:500,
+          fontFamily:F, cursor:'pointer', letterSpacing:'3px', marginBottom:16,
+        }}>
+          印刷プレビュー
+        </button>
+
+        {/* Category cards */}
+        {categories.filter(c => !c.parent_id).map(cat => {
+          const catWl = ss.categories?.[cat.id];
+          if (!catWl || catWl.count === 0) return null;
+          // Get subcategory names
+          const subCats = categories.filter(sc => sc.parent_id === cat.id);
+          const subNames = subCats.map(sc => sc.name_en || sc.name).join(' · ');
+          return (
+            <div key={cat.id} onClick={() => onOpenStore(selectedStore.id, cat.id)}
+              style={{
+                background:C.card, borderRadius:2, padding:'14px 18px',
+                border:`1px solid ${C.bd}`, marginBottom:5, cursor:'pointer',
+              }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:14, fontWeight:600, color:C.tx, fontFamily:F }}>{cat.name}</div>
+                  {subNames && (
+                    <div style={{ fontSize:10, color:C.sub, marginTop:3, fontFamily:F }}>{subNames}</div>
+                  )}
+                </div>
+                <div style={{ fontSize:13, fontWeight:700, color:C.tx, fontFamily:F, flexShrink:0 }}>{catWl.count}種</div>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* リスト管理 button */}
+        <button onClick={() => onOpenStore(selectedStore.id)} style={{
+          width:'100%', padding:'12px', borderRadius:2, marginTop:12,
+          border:`1px solid ${C.acc}`, background:'transparent',
+          fontSize:12, fontFamily:F, color:C.acc, cursor:'pointer', fontWeight:600,
+        }}>リスト管理（全カテゴリ）</button>
+      </div>
+    </div>
+  );
+}
+
 // ===== StockManager =====
 function StockManager({ onNavigate, onImport, onPhotoImport, onPhotoRemoval, stores }) {
   const exportCSV = () => {
@@ -2294,7 +2420,7 @@ export default function App() {
       case 'home': return <HomeView key={homeKey} stores={stores} categories={categories} onNavigate={navigate} onWineList={openWineList} onWineListPrint={openWineListPrint} />;
       case 'search': return <GlobalSearch stores={stores} onSelect={setSelected} />;
       case 'stock': return <StockManager stores={stores} onNavigate={navigate} onImport={() => setShowImport(true)} onPhotoImport={() => setShowPhotoImport(true)} onPhotoRemoval={() => setShowPhotoRemoval(true)} />;
-      case 'list': return <ItemListPage title="全在庫一覧" stores={stores} categories={categories} onBack={() => setTab('home')} onSelect={setSelected} onAdd={() => setShowAdd(true)} />;
+      case 'list': return <WineListStorePicker stores={stores} categories={categories} onOpenStore={openWineList} onOpenPrint={openWineListPrint} />;
       case 'settings': return (
         <div style={{ padding:'16px 16px 100px' }}>
           <div style={{ fontSize:18, fontWeight:400, letterSpacing:2, color:C.tx, fontFamily:EL, marginBottom:16 }}>設定</div>
