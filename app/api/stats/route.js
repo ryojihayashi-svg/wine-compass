@@ -6,8 +6,8 @@ const sb = () => createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-// GET /api/stats?store=hakune
-// Returns category counts with parent aggregation
+// GET /api/stats — returns all stores' stats in one call
+// GET /api/stats?store=hakune — returns single store stats
 export async function GET(req) {
   try {
     const url = new URL(req.url);
@@ -21,10 +21,10 @@ export async function GET(req) {
       .select('id, name, name_en, parent_id, sort_order')
       .order('sort_order');
 
-    // Get counts grouped by category_id and store_id
+    // Get all items (with price for value calc)
     let query = supabase
       .from('wc_beverages')
-      .select('category_id, quantity, store_id')
+      .select('category_id, quantity, store_id, price, cost_price')
       .eq('is_deleted', false);
 
     if (storeId) query = query.eq('store_id', storeId);
@@ -33,43 +33,73 @@ export async function GET(req) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     // Build parent-child map
-    const childToParent = {};
     const parentChildren = {};
     for (const cat of (categories || [])) {
       if (cat.parent_id) {
-        childToParent[cat.id] = cat.parent_id;
         if (!parentChildren[cat.parent_id]) parentChildren[cat.parent_id] = [];
         parentChildren[cat.parent_id].push(cat.id);
       }
     }
 
-    // Count items per category (direct), then aggregate into parents
-    const directCounts = {}; // { catId: { count: N, qty: N } }
+    // Group by store_id
+    const storeItems = {};
     for (const item of (items || [])) {
-      const cid = item.category_id || 0;
-      if (!directCounts[cid]) directCounts[cid] = { count: 0, qty: 0 };
-      directCounts[cid].count++;
-      directCounts[cid].qty += (item.quantity || 0);
+      const sid = item.store_id || '_none';
+      if (!storeItems[sid]) storeItems[sid] = [];
+      storeItems[sid].push(item);
     }
 
-    // Build result for top-level categories
-    const result = {};
-    for (const cat of (categories || [])) {
-      if (cat.parent_id) continue; // skip children
-      const childIds = parentChildren[cat.id] || [];
-      let count = (directCounts[cat.id]?.count || 0);
-      let qty = (directCounts[cat.id]?.qty || 0);
-      for (const childId of childIds) {
-        count += (directCounts[childId]?.count || 0);
-        qty += (directCounts[childId]?.qty || 0);
+    // Helper: aggregate category stats
+    const aggregateCategories = (storeItemList) => {
+      const directCounts = {};
+      let total = 0, totalQty = 0, totalValue = 0;
+
+      for (const item of storeItemList) {
+        const cid = item.category_id || 0;
+        if (!directCounts[cid]) directCounts[cid] = { count: 0, qty: 0, value: 0 };
+        directCounts[cid].count++;
+        directCounts[cid].qty += (item.quantity || 0);
+        const itemValue = (item.quantity || 0) * (item.price || 0);
+        directCounts[cid].value += itemValue;
+        total++;
+        totalQty += (item.quantity || 0);
+        totalValue += itemValue;
       }
-      result[cat.id] = { count, qty, name: cat.name, name_en: cat.name_en };
+
+      // Build top-level category results
+      const catResult = {};
+      for (const cat of (categories || [])) {
+        if (cat.parent_id) continue;
+        const childIds = parentChildren[cat.id] || [];
+        let count = (directCounts[cat.id]?.count || 0);
+        let qty = (directCounts[cat.id]?.qty || 0);
+        let value = (directCounts[cat.id]?.value || 0);
+        for (const childId of childIds) {
+          count += (directCounts[childId]?.count || 0);
+          qty += (directCounts[childId]?.qty || 0);
+          value += (directCounts[childId]?.value || 0);
+        }
+        if (count > 0) {
+          catResult[cat.id] = { count, qty, value, name: cat.name, name_en: cat.name_en };
+        }
+      }
+
+      return { total, totalQty, totalValue, categories: catResult };
+    };
+
+    // Per-store stats
+    const stores = {};
+    for (const [sid, sitems] of Object.entries(storeItems)) {
+      stores[sid] = aggregateCategories(sitems);
     }
+
+    // Global stats
+    const global = aggregateCategories(items || []);
 
     return NextResponse.json({
-      categories: result,
-      total: (items || []).length,
-      totalQty: (items || []).reduce((s, i) => s + (i.quantity || 0), 0),
+      ...global,
+      stores,
+      storeCount: Object.keys(storeItems).length,
     });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });

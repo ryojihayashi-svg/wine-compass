@@ -181,91 +181,164 @@ function BottomSheet({ open, onClose, children }) {
   );
 }
 
-// ===== HomeView =====
+// ===== fmtY — format yen values (万/億) =====
+const fmtY = (n) => {
+  if (!n && n !== 0) return '-';
+  if (n >= 1e8) return (n / 1e8).toFixed(1) + '億';
+  if (n >= 1e4) return Math.round(n / 1e4).toLocaleString() + '万';
+  return Math.round(n).toLocaleString();
+};
+
+// ===== HomeView — matches Beverage Compass UI =====
 function HomeView({ stores, categories, onNavigate }) {
-  const [expanded, setExpanded] = useState({});
-  const [storeSummary, setStoreSummary] = useState({});
-  const [totalItems, setTotalItems] = useState(0);
+  const [openSection, setOpenSection] = useState(null);
+  const [stats, setStats] = useState(null);
 
   useEffect(() => {
-    if (stores.length === 0) return;
-    const fetchSummary = async () => {
-      const summaries = {};
-      // Fetch per-store stats with category counts
-      for (const store of stores) {
-        try {
-          const r = await fetch(`/api/stats?store=${store.id}`);
-          const data = await r.json();
-          summaries[store.id] = { total: data.total || 0, categories: data.categories || {} };
-        } catch(e) { summaries[store.id] = { total: 0, categories: {} }; }
-      }
-      setStoreSummary(summaries);
-      // Fetch global total
+    const fetchStats = async () => {
       try {
         const r = await fetch('/api/stats');
         const data = await r.json();
-        setTotalItems(data.total || 0);
-      } catch(e) {}
+        setStats(data);
+      } catch(e) { setStats({ total: 0, totalQty: 0, totalValue: 0, stores: {}, storeCount: 0, categories: {} }); }
     };
-    fetchSummary();
-  }, [stores]);
+    fetchStats();
+  }, []);
 
-  const toggle = (id) => setExpanded(e => ({ ...e, [id]: !e[id] }));
+  const toggleSection = (sectionId) => {
+    setOpenSection(prev => prev === sectionId ? null : sectionId);
+  };
 
-  const storeGradients = {
-    hakune: ['#EDE8DF', '#E4DED4'],
-    ippei: ['#E8E2D6', '#DDD7CC'],
+  const storeCount = stats ? Object.keys(stats.stores || {}).filter(k => (stats.stores[k]?.total || 0) > 0).length : 0;
+
+  // Store display names: special handling for Burgundy and C&H
+  const getStoreName = (store) => {
+    if (store.id === 'burgundy') return store.name_en || 'Burgundy';
+    return store.name;
+  };
+  const getStoreSubName = (store) => {
+    if (store.id === 'burgundy') return 'Warehouse';
+    if (store.id === 'ch') return 'シェ・カルベール / Chez Calvert';
+    return store.name_en || '';
+  };
+  const getStoreFont = (store) => {
+    if (store.id === 'burgundy' || store.id === 'ume') return EL;
+    return SR;
   };
 
   return (
     <div style={{ padding:'16px 16px 100px' }}>
-      <div style={{ fontSize:18, fontWeight:400, letterSpacing:2, color:C.tx, fontFamily:EL, marginBottom:16 }}>Wine Compass</div>
+      {/* Header */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+        <div style={{ fontSize:18, fontWeight:400, letterSpacing:1, color:C.tx, fontFamily:EL }}>Wine Compass</div>
+      </div>
 
       {/* All Inventory Summary */}
       <div style={{
+        marginBottom:12, borderRadius:2, overflow:'hidden',
         background:'linear-gradient(135deg, #E0DBCF 0%, #D5D0C6 100%)',
-        padding:'16px 20px', borderRadius:2, border:`1px solid ${C.bd}`, marginBottom:12,
+        padding:'16px 20px', color:'#3A3630', border:`1px solid ${C.bd}`,
       }}>
-        <div style={{ fontSize:12, fontWeight:500, color:'#3A3630', fontFamily:SR, marginBottom:8 }}>全在庫</div>
-        <div style={{ display:'flex', justifyContent:'center' }}>
-          <div style={{ textAlign:'center' }}>
-            <div style={{ fontSize:20, fontWeight:600, color:'#3A3630', fontFamily:F }}>{totalItems}</div>
-            <div style={{ fontSize:10, color:'#7A7568' }}>アイテム</div>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+          <div style={{ fontSize:16, fontWeight:600, letterSpacing:1, fontFamily:EL }}>All Inventory</div>
+          <div style={{ fontSize:10, color:'rgba(74,68,64,0.45)', fontFamily:F }}>{storeCount} stores</div>
+        </div>
+        <div style={{ display:'flex', gap:0 }}>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:9, color:'rgba(74,68,64,0.45)', textTransform:'uppercase', letterSpacing:1, fontFamily:F }}>在庫</div>
+            <div style={{ fontSize:18, fontWeight:700, fontFamily:F, marginTop:2 }}>{(stats?.total || 0).toLocaleString()}種</div>
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:9, color:'rgba(74,68,64,0.45)', textTransform:'uppercase', letterSpacing:1, fontFamily:F }}>本数</div>
+            <div style={{ fontSize:18, fontWeight:700, fontFamily:F, marginTop:2 }}>{Math.round(stats?.totalQty || 0).toLocaleString()}本</div>
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:9, color:'rgba(74,68,64,0.45)', textTransform:'uppercase', letterSpacing:1, fontFamily:F }}>在庫総額</div>
+            <div style={{ fontSize:18, fontWeight:700, color:'#8B6914', fontFamily:F, marginTop:2 }}>{fmtY(Math.round(stats?.totalValue || 0))}</div>
           </div>
         </div>
       </div>
 
       {/* Store Cards */}
       {stores.map(store => {
-        const [g1, g2] = storeGradients[store.id] || ['#EDE8DF', '#E4DED4'];
-        const isOpen = expanded[store.id];
-        const summary = storeSummary[store.id] || { total: 0 };
+        const storeStats = stats?.stores?.[store.id] || null;
+        const hasData = storeStats && storeStats.total > 0;
+        const invSec = 'inv-' + store.id;
+        const wlSec = 'wl-' + store.id;
+        const invOpen = openSection === invSec;
+        const wlOpen = openSection === wlSec;
+
         return (
-          <div key={store.id} style={{ marginBottom:10 }}>
-            <div onClick={() => toggle(store.id)} style={{
-              background:`linear-gradient(135deg, ${g1} 0%, ${g2} 100%)`,
-              padding:'14px 16px', borderRadius:2, border:`1px solid ${C.bd}`, cursor:'pointer',
+          <div key={store.id} style={{ marginBottom:8, borderRadius:2, overflow:'hidden', border:`1px solid ${C.bd}` }}>
+            {/* Store Header */}
+            <div style={{
+              background:'linear-gradient(135deg, #EDE8DF 0%, #E4DED4 100%)',
+              padding:'14px 16px', color:'#4A4440',
+              display:'flex', justifyContent:'space-between', alignItems:'flex-start',
             }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                <div>
-                  <div style={{ fontSize:16, fontWeight:400, letterSpacing:2, color:'#3A3630', fontFamily:SR }}>{store.name}</div>
-                  <div style={{ fontSize:11, color:'#8A8478', marginTop:2 }}>{store.name_en || ''}</div>
+              <div>
+                <div style={{ fontSize:20, fontWeight:400, fontFamily:getStoreFont(store), letterSpacing:'3px' }}>
+                  {getStoreName(store)}
                 </div>
-                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                  <span style={{ fontSize:12, color:'#8A8478' }}>{summary.total}種</span>
-                  <Chev open={isOpen} />
+                <div style={{ fontSize:10, fontWeight:400, color:'rgba(74,68,64,0.5)', fontFamily:EL, letterSpacing:'1.5px', marginTop:3 }}>
+                  {getStoreSubName(store)}
                 </div>
               </div>
+              {hasData && (
+                <div style={{ textAlign:'right', flexShrink:0, marginLeft:12 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, justifyContent:'flex-end' }}>
+                    <span style={{ fontSize:11, color:'rgba(74,68,64,0.55)', fontFamily:F }}>{storeStats.total}種</span>
+                    <span style={{ fontSize:11, color:'rgba(74,68,64,0.55)', fontFamily:F }}>{Math.round(storeStats.totalQty).toLocaleString()}本</span>
+                    <span style={{ fontSize:11, color:C.acc, fontWeight:600, fontFamily:F }}>{fmtY(Math.round(storeStats.totalValue))}</span>
+                  </div>
+                  {/* リスト row — placeholder for future wine list feature */}
+                </div>
+              )}
             </div>
-            {isOpen && (
-              <div style={{ padding:'10px 8px', display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                {categories.filter(c => !c.parent_id).map(cat => {
-                  const catStats = summary.categories?.[cat.id] || { count: 0, qty: 0 };
-                  return (
-                    <CatCard key={cat.id} label={cat.name} count={catStats.count} qty={catStats.qty}
-                      onClick={() => onNavigate('list-items', { store: store.id, category: cat.id, title: `${store.name} · ${cat.name}` })} />
-                  );
-                })}
+
+            {/* Accordions */}
+            {hasData && (
+              <div style={{ background:C.card }}>
+                {/* 在庫 Accordion */}
+                <div>
+                  <div onClick={() => toggleSection(invSec)} style={{
+                    padding:'9px 16px', cursor:'pointer', display:'flex', alignItems:'center',
+                    borderBottom:`1px solid ${C.bd}`,
+                  }}>
+                    <div style={{ fontSize:12, fontWeight:500, color:C.sub, flex:1 }}>在庫</div>
+                    <Chev open={invOpen} />
+                  </div>
+                  {invOpen && (
+                    <div style={{ padding:'8px 12px 10px' }}>
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+                        {categories.filter(c => !c.parent_id).map(cat => {
+                          const catStats = storeStats.categories?.[cat.id];
+                          if (!catStats || catStats.count === 0) return null;
+                          return (
+                            <CatCard key={cat.id} label={cat.name} count={catStats.count} qty={catStats.qty}
+                              onClick={() => onNavigate('list-items', { store: store.id, category: cat.id, title: `${store.name} · ${cat.name}` })} />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* リスト Accordion */}
+                <div>
+                  <div onClick={() => toggleSection(wlSec)} style={{
+                    padding:'9px 16px', cursor:'pointer', display:'flex', alignItems:'center',
+                    borderBottom: wlOpen ? `1px solid ${C.bd}` : 'none',
+                  }}>
+                    <div style={{ fontSize:12, fontWeight:500, color:C.sub, flex:1 }}>リスト</div>
+                    <Chev open={wlOpen} />
+                  </div>
+                  {wlOpen && (
+                    <div style={{ padding:'8px 12px 10px' }}>
+                      <div style={{ fontSize:12, color:C.sub, textAlign:'center', padding:'16px 0' }}>ワインリスト機能は準備中です</div>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
