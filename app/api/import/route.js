@@ -79,3 +79,53 @@ export async function POST(req) {
     return NextResponse.json({ error: err.message, stack: err.stack }, { status: 500 });
   }
 }
+
+// DELETE /api/import — clear all beverages for a store (or all)
+export async function DELETE(req) {
+  try {
+    const url = new URL(req.url);
+    const storeId = url.searchParams.get('store');
+    const supabase = sb();
+
+    // First delete logs
+    if (storeId) {
+      // Get beverage IDs for this store
+      const { data: beverages } = await supabase
+        .from('wc_beverages')
+        .select('id')
+        .eq('store_id', storeId);
+
+      if (beverages && beverages.length > 0) {
+        const ids = beverages.map(b => b.id);
+        // Delete logs in batches
+        for (let i = 0; i < ids.length; i += 100) {
+          const batch = ids.slice(i, i + 100);
+          await supabase.from('wc_inventory_log').delete().in('beverage_id', batch);
+        }
+      }
+
+      // Delete beverages
+      const { data, error } = await supabase
+        .from('wc_beverages')
+        .delete()
+        .eq('store_id', storeId)
+        .select('id');
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ deleted: data?.length || 0 });
+    } else {
+      // Delete all logs then all beverages
+      await supabase.from('wc_inventory_log').delete().neq('id', 0);
+      const { data, error } = await supabase
+        .from('wc_beverages')
+        .delete()
+        .neq('id', 0)
+        .select('id');
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ deleted: data?.length || 0 });
+    }
+  } catch (err) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
