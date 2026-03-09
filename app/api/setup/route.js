@@ -20,7 +20,6 @@ export async function POST() {
     return NextResponse.json({ ok: true, message: 'Table already exists' });
   }
 
-  // Table does not exist — try to create via SQL RPC
   const sql = `
     CREATE TABLE IF NOT EXISTS wc_wine_list (
       id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -39,34 +38,77 @@ export async function POST() {
     CREATE INDEX IF NOT EXISTS idx_wl_active ON wc_wine_list(is_active);
   `;
 
-  // Try using the management API with service role key
+  // Extract project ref from URL
   const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (projectUrl && serviceKey) {
+    // Extract project ref from URL (e.g., https://xyz.supabase.co -> xyz)
+    const refMatch = projectUrl.match(/https:\/\/([^.]+)\.supabase\.co/);
+    const projectRef = refMatch ? refMatch[1] : null;
+
+    // Method 1: Try Supabase Management API v1 SQL endpoint
+    if (projectRef) {
+      try {
+        const resp = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({ query: sql }),
+        });
+        if (resp.ok) {
+          return NextResponse.json({ ok: true, message: 'Table created via Management API' });
+        }
+        const errText = await resp.text();
+        // Don't fail yet, try other methods
+      } catch(e) {}
+    }
+
+    // Method 2: Try the /pg/query endpoint (newer Supabase versions)
+    for (const endpoint of ['/pg/query', '/rest/v1/rpc/exec_sql']) {
+      try {
+        const resp = await fetch(`${projectUrl}${endpoint}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': serviceKey,
+            'Authorization': `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({ query: sql }),
+        });
+        if (resp.ok) {
+          return NextResponse.json({ ok: true, message: `Table created via ${endpoint}` });
+        }
+      } catch(e) {}
+    }
+
+    // Method 3: Try creating via individual SQL statements through the supabase-js client
+    // First create a helper RPC function, then use it
     try {
-      // Use the Supabase SQL endpoint directly
-      const resp = await fetch(`${projectUrl}/rest/v1/rpc/`, {
+      // Try to create the exec_ddl function first
+      const createFnResp = await fetch(`${projectUrl}/rest/v1/rpc/exec_ddl`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'apikey': serviceKey,
           'Authorization': `Bearer ${serviceKey}`,
+          'Prefer': 'return=minimal',
         },
-        body: JSON.stringify({ query: sql }),
+        body: JSON.stringify({ ddl_command: sql }),
       });
 
-      if (resp.ok) {
-        return NextResponse.json({ ok: true, message: 'Table created successfully' });
+      if (createFnResp.ok) {
+        return NextResponse.json({ ok: true, message: 'Table created via exec_ddl' });
       }
-    } catch(e) {
-      // Fall through to manual instructions
-    }
+    } catch(e) {}
   }
 
   return NextResponse.json({
-    error: 'Please run this SQL in Supabase Dashboard > SQL Editor:',
+    error: 'Could not auto-create table. Please run this SQL in Supabase Dashboard > SQL Editor:',
     sql: sql.trim(),
+    testError: testErr?.message,
   }, { status: 400 });
 }
 
