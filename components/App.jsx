@@ -211,18 +211,21 @@ function HomeView({ stores, categories, onNavigate }) {
 
   const storeCount = stats ? Object.keys(stats.stores || {}).filter(k => (stats.stores[k]?.total || 0) > 0).length : 0;
 
-  // Store display names: special handling for Burgundy and C&H
+  // Store display names: special handling for Burgundy, C&H, umé
   const getStoreName = (store) => {
-    if (store.id === 'burgundy') return store.name_en || 'Burgundy';
+    if (store.id === 'burgundy') return 'Burgundy';
+    if (store.id === 'ume') return 'umé';
+    if (store.id === 'ch') return 'C&H';
     return store.name;
   };
   const getStoreSubName = (store) => {
     if (store.id === 'burgundy') return 'Warehouse';
     if (store.id === 'ch') return 'シェ・カルベール / Chez Calvert';
+    if (store.id === 'ume') return 'umé';
     return store.name_en || '';
   };
   const getStoreFont = (store) => {
-    if (store.id === 'burgundy' || store.id === 'ume') return EL;
+    if (store.id === 'burgundy' || store.id === 'ume' || store.id === 'ch') return EL;
     return SR;
   };
 
