@@ -23,20 +23,43 @@ CREATE TABLE IF NOT EXISTS wc_wine_list (
 CREATE INDEX IF NOT EXISTS idx_wl_store ON wc_wine_list(store_id);
 CREATE INDEX IF NOT EXISTS idx_wl_beverage ON wc_wine_list(beverage_id);
 CREATE INDEX IF NOT EXISTS idx_wl_active ON wc_wine_list(is_active);
+
+CREATE TABLE IF NOT EXISTS wc_wine_list_items (
+  id BIGSERIAL PRIMARY KEY,
+  store_id TEXT NOT NULL,
+  section TEXT NOT NULL,
+  section_en TEXT,
+  section_order SMALLINT DEFAULT 0,
+  subsection TEXT,
+  subsection_en TEXT,
+  name_en TEXT NOT NULL,
+  name_jp TEXT,
+  producer_en TEXT,
+  producer_jp TEXT,
+  vintage TEXT,
+  sell_price INTEGER,
+  sell_price_incl INTEGER,
+  cost_price INTEGER,
+  region TEXT,
+  glass_price INTEGER,
+  sort_order SMALLINT DEFAULT 0,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_wli_store ON wc_wine_list_items(store_id);
+CREATE INDEX IF NOT EXISTS idx_wli_section ON wc_wine_list_items(store_id, section_order, sort_order);
 `.trim();
 
 // POST /api/setup — create wc_wine_list table
 export async function POST(req) {
   const supabase = sb();
 
-  // Test if table already exists
-  const { error: testErr } = await supabase
-    .from('wc_wine_list')
-    .select('id')
-    .limit(1);
+  // Test if tables already exist
+  const { error: testErr1 } = await supabase.from('wc_wine_list').select('id').limit(1);
+  const { error: testErr2 } = await supabase.from('wc_wine_list_items').select('id').limit(1);
 
-  if (!testErr) {
-    return NextResponse.json({ ok: true, message: 'Table already exists' });
+  if (!testErr1 && !testErr2) {
+    return NextResponse.json({ ok: true, message: 'Tables already exist' });
   }
 
   // Try direct Postgres connection
