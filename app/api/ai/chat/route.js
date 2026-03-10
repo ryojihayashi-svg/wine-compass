@@ -29,6 +29,14 @@ export async function POST(req) {
       }),
     });
 
+    if (!response.ok) {
+      const errText = await response.text();
+      return NextResponse.json(
+        { error: `Claude API error: ${response.status}`, details: errText },
+        { status: 502 }
+      );
+    }
+
     const data = await response.json();
     const text = (data.content || []).map(c => c.text || '').join('');
 

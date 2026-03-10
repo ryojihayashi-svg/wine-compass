@@ -6,6 +6,34 @@ const sb = () => createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
+// Paginated fetch to avoid Supabase 1000-row default limit
+async function fetchAllBeverages(supabase, storeId) {
+  const PAGE_SIZE = 1000;
+  let allItems = [];
+  let from = 0;
+
+  while (true) {
+    let query = supabase
+      .from('wc_beverages')
+      .select('*, wc_categories(name)')
+      .eq('is_deleted', false)
+      .order('category_id', { ascending: true })
+      .order('name', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (storeId) query = query.eq('store_id', storeId);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    allItems = allItems.concat(data);
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return allItems;
+}
+
 // GET /api/export?store=hakune&format=csv
 export async function GET(req) {
   try {
@@ -14,18 +42,7 @@ export async function GET(req) {
     const format = url.searchParams.get('format') || 'csv';
 
     const supabase = sb();
-
-    let query = supabase
-      .from('wc_beverages')
-      .select('*, wc_categories(name)')
-      .eq('is_deleted', false)
-      .order('category_id', { ascending: true })
-      .order('name', { ascending: true });
-
-    if (storeId) query = query.eq('store_id', storeId);
-
-    const { data: items, error } = await query;
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const items = await fetchAllBeverages(supabase, storeId);
 
     if (format === 'json') {
       return NextResponse.json(items);

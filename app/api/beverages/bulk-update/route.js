@@ -6,6 +6,21 @@ const sb = () => createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
+// Allowed fields for updates (same as beverages/[id])
+const ALLOWED_FIELDS = new Set([
+  'name', 'name_kana', 'producer', 'vintage', 'region', 'appellation',
+  'grape', 'size_ml', 'quantity', 'price', 'cost_price', 'notes',
+  'category_id', 'is_deleted', 'deleted_at', 'store_id',
+]);
+
+function filterFields(obj) {
+  const filtered = {};
+  for (const key of Object.keys(obj)) {
+    if (ALLOWED_FIELDS.has(key)) filtered[key] = obj[key];
+  }
+  return filtered;
+}
+
 // POST /api/beverages/bulk-update
 // Body: { updates: [{ id, name, name_kana, producer, ... }] }
 export async function POST(req) {
@@ -26,8 +41,11 @@ export async function POST(req) {
       const chunk = updates.slice(i, i + chunkSize);
 
       const promises = chunk.map(async (item) => {
-        const { id, ...fields } = item;
+        const { id, ...rawFields } = item;
         if (!id) return { error: 'missing id' };
+
+        const fields = filterFields(rawFields);
+        if (Object.keys(fields).length === 0) return { id, ok: true }; // nothing to update
 
         const { error } = await supabase
           .from('wc_beverages')

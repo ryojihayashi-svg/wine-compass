@@ -111,25 +111,11 @@ export async function POST(req) {
     }
   }
 
-  // Method 3: Body may contain db_url from user
-  try {
-    const body = await req.json().catch(() => ({}));
-    if (body.db_url) {
-      const client = new pg.Client({ connectionString: body.db_url, ssl: { rejectUnauthorized: false } });
-      await client.connect();
-      await client.query(SQL);
-      await client.end();
-      return NextResponse.json({ ok: true, message: 'Table created via provided db_url' });
-    }
-  } catch(e) {
-    errors.push({ method: 'body.db_url', error: e.message });
-  }
-
   return NextResponse.json({
     error: 'Could not auto-create table',
     errors,
     sql: SQL,
-    hint: 'Add DATABASE_URL env var in Vercel, or POST with {"db_url":"postgresql://..."}'
+    hint: 'Add DATABASE_URL env var in Vercel, or run the SQL manually in Supabase Dashboard'
   }, { status: 400 });
 }
 

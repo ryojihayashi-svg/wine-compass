@@ -16,20 +16,32 @@ export async function GET() {
     .select('id, name, name_en, parent_id, sort_order')
     .order('sort_order');
 
-  // Step 1: Get all active wine list items (NO join — avoids schema cache issues)
-  const { data: wlItems, error } = await supabase
-    .from('wc_wine_list')
-    .select('id, store_id, beverage_id, sell_price')
-    .eq('is_active', true);
+  // Step 1: Get all active wine list items with pagination
+  let wlItems = [];
+  {
+    const PAGE_SIZE = 1000;
+    let from = 0;
+    while (true) {
+      const { data, error: pageErr } = await supabase
+        .from('wc_wine_list')
+        .select('id, store_id, beverage_id, sell_price')
+        .eq('is_active', true)
+        .range(from, from + PAGE_SIZE - 1);
 
-  if (error) {
-    if (error.message.includes('does not exist') || error.code === '42P01' || error.message.includes('schema cache')) {
-      return NextResponse.json({ stores: {}, total: 0 });
+      if (pageErr) {
+        if (pageErr.message.includes('does not exist') || pageErr.code === '42P01' || pageErr.message.includes('schema cache')) {
+          return NextResponse.json({ stores: {}, total: 0 });
+        }
+        return NextResponse.json({ error: pageErr.message }, { status: 500 });
+      }
+      if (!data || data.length === 0) break;
+      wlItems = wlItems.concat(data);
+      if (data.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
     }
-    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  if (!wlItems || wlItems.length === 0) {
+  if (wlItems.length === 0) {
     return NextResponse.json({ stores: {}, total: 0, totalValue: 0 });
   }
 

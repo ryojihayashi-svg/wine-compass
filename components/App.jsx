@@ -12,7 +12,7 @@ const useAuth = () => {
     if (r.ok) { sessionStorage.setItem('wc_auth', 'ok'); setOk(true); return true; }
     return false;
   };
-  const logout = () => { sessionStorage.removeItem('wc_auth'); setOk(false); };
+  const logout = () => { fetch('/api/auth', { method: 'DELETE' }).catch(() => {}); sessionStorage.removeItem('wc_auth'); setOk(false); };
   return { ok, login, logout };
 };
 
@@ -2601,10 +2601,15 @@ export default function App() {
   };
 
   const saveItem = async (id, updates) => {
-    await fetch(`/api/beverages/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) });
+    const res = await fetch(`/api/beverages/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      setToast(`保存エラー: ${err.error || res.status}`);
+      return;
+    }
     if (selected?.id === id) {
       const r = await fetch(`/api/beverages/${id}`);
-      setSelected(await r.json());
+      if (r.ok) setSelected(await r.json());
     }
     setToast('保存しました');
   };
