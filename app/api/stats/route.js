@@ -75,7 +75,7 @@ export async function GET(req) {
         if (!directCounts[cid]) directCounts[cid] = { count: 0, qty: 0, value: 0 };
         directCounts[cid].count++;
         directCounts[cid].qty += (item.quantity || 0);
-        const itemValue = (item.quantity || 0) * (item.price || 0);
+        const itemValue = (item.quantity || 0) * (item.cost_price || item.price || 0);
         directCounts[cid].value += itemValue;
         total++;
         totalQty += (item.quantity || 0);

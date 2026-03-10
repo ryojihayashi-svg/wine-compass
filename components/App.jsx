@@ -2239,7 +2239,7 @@ function DetailModal({ item, stores, categories, onClose, onSave, onDelete }) {
             <div style={{ display:'flex', gap:0 }}>
               <Stat label="仕入価格" value={fmt(item.cost_price || item.price)} />
               <div style={{ width:1, background:C.bd, margin:'0 16px', alignSelf:'stretch' }} />
-              <Stat label="在庫金額" value={item.price ? fmt(Math.round((item.quantity || 0) * item.price)) : '—'} />
+              <Stat label="在庫金額" value={(item.cost_price || item.price) ? fmt(Math.round((item.quantity || 0) * (item.cost_price || item.price))) : '—'} />
             </div>
 
             <Div />
