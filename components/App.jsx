@@ -118,6 +118,94 @@ function QBadge({ q }) {
   return <span style={{ fontSize:11, fontWeight:600, color:fg, background:bg, padding:'3px 8px', borderRadius:6, fontFamily:F }}>{q}本</span>;
 }
 
+// ===== AISommelier =====
+function AISommelier({ onClose }) {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [systemPrompt, setSystemPrompt] = useState('You are a sommelier AI assistant. Answer in Japanese.');
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    fetch('/api/stats').then(r => r.json()).then(stats => {
+      const summary = `在庫概要: ${stats.total || 0}種, ${stats.totalQty || 0}本, 総額${Math.round((stats.totalValue || 0) / 10000)}万円, ${stats.storeCount || 0}店舗`;
+      setSystemPrompt(`You are a sommelier AI assistant for Wine Compass. ${summary}. Answer in Japanese. Be concise.`);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
+  const send = async () => {
+    if (!input.trim() || loading) return;
+    const userMsg = { role: 'user', content: input.trim() };
+    const next = [...messages, userMsg];
+    setMessages(next);
+    setInput('');
+    setLoading(true);
+    try {
+      const r = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: next.map(m => ({ role: m.role, content: m.content })), system: systemPrompt }),
+      });
+      const data = await r.json();
+      setMessages(prev => [...prev, { role: 'assistant', content: data.text || data.error || 'エラーが発生しました' }]);
+    } catch(e) {
+      setMessages(prev => [...prev, { role: 'assistant', content: '通信エラーが発生しました' }]);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:10000, background:C.bg, display:'flex', flexDirection:'column' }}>
+      <div style={{ padding:'14px 16px', borderBottom:`1px solid ${C.bd}`, display:'flex', alignItems:'center', justifyContent:'space-between', background:C.card }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          <span style={{ fontSize:18 }}>🍷</span>
+          <span style={{ fontSize:15, fontWeight:600, fontFamily:EL, color:C.tx }}>AI Sommelier</span>
+        </div>
+        <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:C.sub, padding:4 }}>✕</button>
+      </div>
+      <div style={{ flex:1, overflowY:'auto', padding:16 }}>
+        {messages.length === 0 && (
+          <div style={{ textAlign:'center', padding:'40px 20px', color:C.sub }}>
+            <div style={{ fontSize:36, marginBottom:12 }}>🍷</div>
+            <div style={{ fontSize:14, fontFamily:F, marginBottom:4 }}>AI Sommelier</div>
+            <div style={{ fontSize:12, fontFamily:F }}>ワインに関する質問をどうぞ</div>
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} style={{ display:'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', marginBottom:10 }}>
+            <div style={{
+              maxWidth:'80%', padding:'10px 14px', borderRadius:14,
+              background: m.role === 'user' ? C.tx : C.card,
+              color: m.role === 'user' ? '#fff' : C.tx,
+              border: m.role === 'user' ? 'none' : `1px solid ${C.bd}`,
+              fontSize:13, fontFamily:F, lineHeight:1.6, whiteSpace:'pre-wrap',
+            }}>{m.content}</div>
+          </div>
+        ))}
+        {loading && (
+          <div style={{ display:'flex', justifyContent:'flex-start', marginBottom:10 }}>
+            <div style={{ padding:'10px 14px', borderRadius:14, background:C.card, border:`1px solid ${C.bd}` }}>
+              <div style={{ display:'flex', gap:4 }}>
+                {[0,1,2].map(i => <div key={i} style={{ width:6, height:6, borderRadius:'50%', background:C.sub, animation:`pulse 1s ${i*0.2}s infinite` }} />)}
+              </div>
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+      <div style={{ padding:'12px 16px', borderTop:`1px solid ${C.bd}`, background:C.card, display:'flex', gap:8 }}>
+        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
+          placeholder="質問を入力..."
+          style={{ flex:1, padding:'10px 14px', border:`1px solid ${C.bd}`, borderRadius:20, fontSize:14, fontFamily:F, background:C.bg, outline:'none', boxSizing:'border-box' }} />
+        <button onClick={send} disabled={!input.trim() || loading}
+          style={{ padding:'10px 16px', borderRadius:20, border:'none', background: input.trim() ? C.acc : C.bd, color:'#fff', fontSize:13, fontWeight:600, fontFamily:F, cursor:'pointer', whiteSpace:'nowrap' }}>送信</button>
+      </div>
+    </div>
+  );
+}
+
 // ===== BottomNav =====
 const TABS = [
   { id: 'home', label: 'ホーム', Icon: IcoHome },
@@ -190,7 +278,7 @@ const fmtY = (n) => {
 };
 
 // ===== HomeView — matches Beverage Compass UI =====
-function HomeView({ stores, categories, onNavigate, onWineList, onWineListPrint }) {
+function HomeView({ stores, categories, onNavigate, onWineList, onWineListPrint, onShowAI }) {
   const [openSection, setOpenSection] = useState(null);
   const [stats, setStats] = useState(null);
   const [wlStats, setWlStats] = useState(null);
@@ -241,6 +329,10 @@ function HomeView({ stores, categories, onNavigate, onWineList, onWineListPrint 
       {/* Header */}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
         <div style={{ fontSize:18, fontWeight:400, letterSpacing:1, color:C.tx, fontFamily:EL }}>Wine Compass</div>
+        <button onClick={onShowAI} style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px', background:C.card, border:`1px solid ${C.bd}`, borderRadius:20, cursor:'pointer' }}>
+          <span style={{ fontSize:14 }}>🍷</span>
+          <span style={{ fontSize:11, fontWeight:600, color:C.acc, fontFamily:F }}>AI Sommelier</span>
+        </button>
       </div>
 
       {/* All Inventory Summary */}
@@ -431,29 +523,30 @@ function GlobalSearch({ stores, onSelect }) {
           <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>検索中...</div>
         ) : results.length === 0 ? (
           <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>該当なし</div>
-        ) : results.map(item => (
+        ) : (<>
+          <div style={{ fontSize:11, color:C.sub, fontFamily:F, marginBottom:6, paddingLeft:2 }}>{results.length}件</div>
+          {results.map(item => (
           <div key={item.id} onClick={() => onSelect(item)} style={{
-            background:C.card, borderRadius:1, padding:'12px 14px 12px 20px', border:`1px solid ${C.bd}`,
-            marginBottom:5, cursor:'pointer', position:'relative',
+            background:C.card, borderRadius:1, padding:'10px 14px 10px 20px', border:`1px solid ${C.bd}`,
+            marginBottom:4, cursor:'pointer', position:'relative',
           }}>
             <div style={{ position:'absolute', left:0, top:0, bottom:0, width:3, background: storeColor[item.store_id] || C.acc, opacity:0.5 }} />
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', paddingLeft:4 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', paddingLeft:4 }}>
               <div style={{ flex:1, minWidth:0 }}>
                 {item.producer && <div style={{ fontSize:9, color:'#A09A8C', fontFamily:F, letterSpacing:0.3 }}>{item.producer}</div>}
                 <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, lineHeight:1.35, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}{item.vintage && <span style={{ fontWeight:400, fontSize:12, color:'#8A8478', marginLeft:3, fontFamily:F }}>{item.vintage}</span>}</div>
-                {item.name_kana && item.name_kana !== item.name && <div style={{ fontSize:10, color:'#B0AA9C', fontFamily:"'Noto Sans JP',sans-serif", marginTop:1 }}>{item.name_kana}</div>}
                 <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:3 }}>
                   <span style={{ fontSize:8, padding:'1px 6px', borderRadius:4, background:storeColor[item.store_id]||C.acc, color:'#fff', fontFamily:F }}>{storeName[item.store_id]||''}</span>
-                  <span style={{ fontSize:9, color:'#B0AA9C', padding:'1px 5px', borderRadius:4, background:'#F0EDE8' }}>在庫</span>
                 </div>
               </div>
               <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:3, flexShrink:0, marginLeft:10 }}>
-                <QBadge q={item.quantity} />
+                <span style={{ fontSize:12, fontWeight:600, color: (item.quantity||0) <= 1 ? C.red : C.green, fontFamily:F }}>{item.quantity || 0}本</span>
                 {item.price != null && <span style={{ fontSize:10, color:'#B0AA9C', fontFamily:F }}>{fmt(item.price)}</span>}
               </div>
             </div>
           </div>
         ))}
+        </>)}
       </div>
     </div>
   );
@@ -2140,6 +2233,41 @@ function DetailModal({ item, stores, categories, onClose, onSave, onDelete }) {
   const [aiData, setAiData] = useState(WINE_CACHE[wk] || {});
   const [loading, setLoading] = useState(null);
 
+  // Pairing & comment state
+  const [pairings, setPairings] = useState([]);
+  const [comments, setComments] = useState([]);
+  const [showPairingForm, setShowPairingForm] = useState(false);
+  const [pairingForm, setPairingForm] = useState({ date: new Date().toISOString().slice(0, 10), dish: '', description: '', staff: '' });
+  const [showCommentInput, setShowCommentInput] = useState(false);
+  const [commentText, setCommentText] = useState('');
+  const [commentAuthor, setCommentAuthor] = useState('');
+
+  useEffect(() => {
+    if (!item?.id) return;
+    fetch(`/api/pairings?beverage_id=${item.id}`).then(r => r.json()).then(d => setPairings(Array.isArray(d) ? d : [])).catch(() => {});
+    fetch(`/api/comments?beverage_id=${item.id}`).then(r => r.json()).then(d => setComments(Array.isArray(d) ? d : [])).catch(() => {});
+  }, [item?.id]);
+
+  const addPairing = async () => {
+    if (!pairingForm.dish.trim()) return;
+    try {
+      const r = await fetch('/api/pairings', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ beverage_id: item.id, store_id: item.store_id, ...pairingForm }) });
+      const data = await r.json();
+      if (data.id) { setPairings(prev => [data, ...prev]); setShowPairingForm(false); setPairingForm({ date: new Date().toISOString().slice(0, 10), dish: '', description: '', staff: '' }); }
+    } catch(e) {}
+  };
+
+  const addComment = async () => {
+    if (!commentText.trim()) return;
+    try {
+      const r = await fetch('/api/comments', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ beverage_id: item.id, text: commentText, author: commentAuthor || '匿名' }) });
+      const data = await r.json();
+      if (data.id) { setComments(prev => [data, ...prev]); setShowCommentInput(false); setCommentText(''); setCommentAuthor(''); }
+    } catch(e) {}
+  };
+
   if (!item) return null;
 
   const catName = categories.find(c => c.id === item.category_id)?.name || '';
@@ -2274,6 +2402,70 @@ function DetailModal({ item, stores, categories, onClose, onSave, onDelete }) {
               })}
             </div>
 
+            {/* Pairing History */}
+            <div style={{ marginTop:16 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                <div style={{ fontSize:12, fontWeight:600, fontFamily:F, color:C.tx, display:'flex', alignItems:'center', gap:4 }}>🍷 PAIRING HISTORY</div>
+                <button onClick={() => setShowPairingForm(!showPairingForm)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:11, color:C.acc, fontFamily:F }}>
+                  {showPairingForm ? '閉じる' : '＋記録を追加'}
+                </button>
+              </div>
+              {showPairingForm && (
+                <div style={{ padding:12, background:'#F6F4F0', borderRadius:6, marginBottom:8 }}>
+                  <input type="date" value={pairingForm.date} onChange={e => setPairingForm(f => ({ ...f, date: e.target.value }))}
+                    style={{ width:'100%', padding:'6px 8px', border:`1px solid ${C.bd}`, borderRadius:4, fontSize:12, fontFamily:F, marginBottom:6, boxSizing:'border-box' }} />
+                  <input placeholder="料理名 *" value={pairingForm.dish} onChange={e => setPairingForm(f => ({ ...f, dish: e.target.value }))}
+                    style={{ width:'100%', padding:'6px 8px', border:`1px solid ${C.bd}`, borderRadius:4, fontSize:12, fontFamily:F, marginBottom:6, boxSizing:'border-box' }} />
+                  <input placeholder="説明" value={pairingForm.description} onChange={e => setPairingForm(f => ({ ...f, description: e.target.value }))}
+                    style={{ width:'100%', padding:'6px 8px', border:`1px solid ${C.bd}`, borderRadius:4, fontSize:12, fontFamily:F, marginBottom:6, boxSizing:'border-box' }} />
+                  <input placeholder="スタッフ" value={pairingForm.staff} onChange={e => setPairingForm(f => ({ ...f, staff: e.target.value }))}
+                    style={{ width:'100%', padding:'6px 8px', border:`1px solid ${C.bd}`, borderRadius:4, fontSize:12, fontFamily:F, marginBottom:6, boxSizing:'border-box' }} />
+                  <button onClick={addPairing} style={{ width:'100%', padding:8, background:C.acc, color:'#fff', border:'none', borderRadius:4, fontSize:12, fontWeight:600, fontFamily:F, cursor:'pointer' }}>追加</button>
+                </div>
+              )}
+              {pairings.length === 0 ? (
+                <div style={{ fontSize:11, color:C.sub, fontFamily:F, padding:'8px 0' }}>ペアリング記録なし</div>
+              ) : pairings.map(p => (
+                <div key={p.id} style={{ padding:'8px 0', borderBottom:`1px solid ${C.bd}` }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <div style={{ fontSize:13, fontWeight:500, fontFamily:F, color:C.tx }}>{p.dish}</div>
+                    <div style={{ fontSize:10, color:C.sub, fontFamily:F }}>{p.date}</div>
+                  </div>
+                  {p.description && <div style={{ fontSize:11, color:C.sub, fontFamily:F, marginTop:2 }}>{p.description}</div>}
+                  {p.staff && <div style={{ fontSize:10, color:'#B0AA9C', fontFamily:F, marginTop:2 }}>by {p.staff}</div>}
+                </div>
+              ))}
+            </div>
+
+            <Div />
+
+            {/* Tasting Comments */}
+            <div>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                <div style={{ fontSize:12, fontWeight:600, fontFamily:F, color:C.tx, display:'flex', alignItems:'center', gap:4 }}>💬 TASTING COMMENTS</div>
+                <button onClick={() => setShowCommentInput(!showCommentInput)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:11, color:C.acc, fontFamily:F }}>
+                  {showCommentInput ? '閉じる' : '＋コメント追加'}
+                </button>
+              </div>
+              {showCommentInput && (
+                <div style={{ padding:12, background:'#F6F4F0', borderRadius:6, marginBottom:8 }}>
+                  <textarea placeholder="コメント *" value={commentText} onChange={e => setCommentText(e.target.value)}
+                    style={{ width:'100%', padding:'6px 8px', border:`1px solid ${C.bd}`, borderRadius:4, fontSize:12, fontFamily:F, minHeight:50, resize:'vertical', marginBottom:6, boxSizing:'border-box' }} />
+                  <input placeholder="名前（匿名）" value={commentAuthor} onChange={e => setCommentAuthor(e.target.value)}
+                    style={{ width:'100%', padding:'6px 8px', border:`1px solid ${C.bd}`, borderRadius:4, fontSize:12, fontFamily:F, marginBottom:6, boxSizing:'border-box' }} />
+                  <button onClick={addComment} style={{ width:'100%', padding:8, background:C.acc, color:'#fff', border:'none', borderRadius:4, fontSize:12, fontWeight:600, fontFamily:F, cursor:'pointer' }}>追加</button>
+                </div>
+              )}
+              {comments.length === 0 ? (
+                <div style={{ fontSize:11, color:C.sub, fontFamily:F, padding:'8px 0' }}>コメントなし</div>
+              ) : comments.map(c => (
+                <div key={c.id} style={{ padding:'8px 0', borderBottom:`1px solid ${C.bd}` }}>
+                  <div style={{ fontSize:13, fontFamily:F, color:C.tx, lineHeight:1.5 }}>{c.text}</div>
+                  <div style={{ fontSize:10, color:'#B0AA9C', fontFamily:F, marginTop:2 }}>{c.author || '匿名'} · {new Date(c.created_at).toLocaleDateString('ja-JP')}</div>
+                </div>
+              ))}
+            </div>
+
             {/* Quantity Adjuster Bar */}
             <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:16, marginTop:16, padding:'12px 0', background:'#F6F4F0', borderRadius:8 }}>
               <button onClick={() => adjustQty(-1)} style={{ width:40, height:40, borderRadius:'50%', border:`1px solid ${C.bd}`, background:C.card, fontSize:18, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:C.red }}>−</button>
@@ -2380,6 +2572,7 @@ export default function App() {
   const [showPhotoImport, setShowPhotoImport] = useState(false);
   const [showPhotoRemoval, setShowPhotoRemoval] = useState(false);
   const [toast, setToast] = useState('');
+  const [showAI, setShowAI] = useState(false);
   const [homeKey, setHomeKey] = useState(0); // for refreshing home view
 
   useEffect(() => {
@@ -2436,7 +2629,7 @@ export default function App() {
       return <WineListPrint storeId={subView.params?.store} stores={stores} onBack={goBack} />;
     }
     switch (tab) {
-      case 'home': return <HomeView key={homeKey} stores={stores} categories={categories} onNavigate={navigate} onWineList={openWineList} onWineListPrint={openWineListPrint} />;
+      case 'home': return <HomeView key={homeKey} stores={stores} categories={categories} onNavigate={navigate} onWineList={openWineList} onWineListPrint={openWineListPrint} onShowAI={() => setShowAI(true)} />;
       case 'search': return <GlobalSearch stores={stores} onSelect={setSelected} />;
       case 'stock': return <StockManager stores={stores} onNavigate={navigate} onImport={() => setShowImport(true)} onPhotoImport={() => setShowPhotoImport(true)} onPhotoRemoval={() => setShowPhotoRemoval(true)} />;
       case 'list': return <WineListStorePicker stores={stores} categories={categories} onOpenStore={openWineList} onOpenPrint={openWineListPrint} onNavigate={navigate} />;
@@ -2472,11 +2665,13 @@ export default function App() {
       {showImport && <ExcelImport stores={stores} categories={categories} onClose={() => setShowImport(false)} onImported={() => setToast('インポート完了')} />}
       {showPhotoImport && <PhotoImport stores={stores} categories={categories} onClose={() => setShowPhotoImport(false)} onImported={() => setToast('写真入庫完了')} />}
       {showPhotoRemoval && <PhotoRemoval stores={stores} onClose={() => setShowPhotoRemoval(false)} onRemoved={() => setToast('出庫しました')} />}
+      {showAI && <AISommelier onClose={() => setShowAI(false)} />}
       <Toast msg={toast} onClose={() => setToast('')} />
       <style>{`
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
         @keyframes slideDown { from { transform: translateY(0); } to { transform: translateY(100%); } }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
         * { -webkit-tap-highlight-color: transparent; }
         ::-webkit-scrollbar { display: none; }
         input:focus, select:focus, textarea:focus { border-color: ${C.acc} !important; outline: none; }
