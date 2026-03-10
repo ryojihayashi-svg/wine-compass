@@ -714,16 +714,17 @@ function PhotoImport({ stores, categories, onClose, onImported }) {
   const [checked, setChecked] = useState({});
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const [fileName, setFileName] = useState('');
+  const cameraRef = useRef(null);
   const fileRef = useRef(null);
 
-  const handleCapture = async (e) => {
-    const file = e.target.files?.[0];
+  const processFile = async (file) => {
     if (!file) return;
     setError('');
+    setFileName(file.name);
     setStep('loading');
 
     try {
-      // Convert to base64
       const reader = new FileReader();
       const base64 = await new Promise((resolve, reject) => {
         reader.onload = () => resolve(reader.result);
@@ -731,11 +732,11 @@ function PhotoImport({ stores, categories, onClose, onImported }) {
         reader.readAsDataURL(file);
       });
 
-      // Send to AI API
+      const isPDF = file.type === 'application/pdf';
       const resp = await fetch('/api/ai/parse-invoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: base64 }),
+        body: JSON.stringify(isPDF ? { document: base64 } : { image: base64 }),
       });
 
       const data = await resp.json();
@@ -789,15 +790,21 @@ function PhotoImport({ stores, categories, onClose, onImported }) {
     <BottomSheet open={true} onClose={onClose}>
       {step === 'capture' && (
         <div>
-          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:4 }}>写真で入庫</div>
-          <div style={{ fontSize:12, color:C.sub, marginBottom:16 }}>納品書・伝票を撮影するとAIがアイテムを読み取ります</div>
-          <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleCapture} style={{ display:'none' }} />
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:4 }}>AI入庫</div>
+          <div style={{ fontSize:12, color:C.sub, marginBottom:16 }}>納品書・伝票の写真やファイルからAIがアイテムを読み取ります</div>
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={e => processFile(e.target.files?.[0])} style={{ display:'none' }} />
+          <input ref={fileRef} type="file" accept="image/*,.pdf" onChange={e => processFile(e.target.files?.[0])} style={{ display:'none' }} />
           <div style={{ display:'flex', gap:10 }}>
-            <button onClick={() => fileRef.current?.click()} style={{
+            <button onClick={() => cameraRef.current?.click()} style={{
               flex:1, padding:20, borderRadius:2, border:`2px dashed ${C.bd}`, background:'transparent',
               fontSize:14, fontFamily:F, color:C.acc, cursor:'pointer', textAlign:'center',
             }}>📷 撮影</button>
+            <button onClick={() => fileRef.current?.click()} style={{
+              flex:1, padding:20, borderRadius:2, border:`2px dashed ${C.bd}`, background:'transparent',
+              fontSize:14, fontFamily:F, color:C.acc, cursor:'pointer', textAlign:'center',
+            }}>📄 ファイル選択</button>
           </div>
+          <div style={{ fontSize:10, color:C.sub, marginTop:8, textAlign:'center' }}>画像（JPG, PNG）・PDF対応</div>
           {error && <div style={{ color:C.red, fontSize:12, marginTop:12 }}>{error}</div>}
         </div>
       )}
@@ -1970,7 +1977,7 @@ function StockManager({ onNavigate, onImport, onPhotoImport, onPhotoRemoval, sto
 
   const actions = [
     { icon: '📦', title: '在庫一覧', desc: '全アイテムを閲覧・管理', action: () => onNavigate('list-items', { title: '全在庫一覧' }) },
-    { icon: '📷', title: '写真で入庫', desc: '納品書を撮影→AI読取→在庫追加', action: () => onPhotoImport() },
+    { icon: '📷', title: 'AI入庫', desc: '納品書の写真・PDF→AI読取→在庫追加', action: () => onPhotoImport() },
     { icon: '🍷', title: '写真で出庫', desc: 'ボトル撮影→AI識別→在庫-1', action: () => onPhotoRemoval() },
     { icon: '➕', title: '新規追加', desc: 'アイテムを手動で追加', action: () => onNavigate('add') },
     { icon: '📊', title: 'Excel取込', desc: 'Excelファイルから一括追加', action: () => onImport() },

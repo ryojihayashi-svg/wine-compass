@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
 const SYSTEM_PROMPT = `あなたはワイン・飲料の納品書/伝票を読み取るエキスパートです。
-画像から以下の情報を抽出し、JSON配列で返してください。
+画像またはPDFから以下の情報を抽出し、JSON配列で返してください。
 
 各アイテムについて:
 - name: 正式商品名（日本語カタカナの場合は英語/フランス語の正式名に変換。例: エグリ・ウーリエ → Egly-Ouriet）
@@ -34,21 +34,48 @@ export async function POST(req) {
     }
 
     const body = await req.json();
-    const { image } = body; // base64 encoded image
+    const { image, document: pdfDoc } = body;
 
-    if (!image) {
-      return NextResponse.json({ error: 'No image provided' }, { status: 400 });
+    if (!image && !pdfDoc) {
+      return NextResponse.json({ error: 'No image or document provided' }, { status: 400 });
     }
 
-    // Determine media type from base64 header
-    let mediaType = 'image/jpeg';
-    if (image.startsWith('data:')) {
-      const match = image.match(/^data:([^;]+);base64,/);
-      if (match) mediaType = match[1];
+    // Build content block based on input type
+    let contentBlock;
+    if (pdfDoc) {
+      // PDF document
+      let mediaType = 'application/pdf';
+      let base64Data = pdfDoc;
+      if (pdfDoc.startsWith('data:')) {
+        const match = pdfDoc.match(/^data:([^;]+);base64,/);
+        if (match) mediaType = match[1];
+        base64Data = pdfDoc.replace(/^data:[^;]+;base64,/, '');
+      }
+      contentBlock = {
+        type: 'document',
+        source: {
+          type: 'base64',
+          media_type: mediaType,
+          data: base64Data,
+        },
+      };
+    } else {
+      // Image
+      let mediaType = 'image/jpeg';
+      if (image.startsWith('data:')) {
+        const match = image.match(/^data:([^;]+);base64,/);
+        if (match) mediaType = match[1];
+      }
+      const base64Data = image.replace(/^data:[^;]+;base64,/, '');
+      contentBlock = {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: mediaType,
+          data: base64Data,
+        },
+      };
     }
-
-    // Strip data URI prefix if present
-    const base64Data = image.replace(/^data:[^;]+;base64,/, '');
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -65,14 +92,7 @@ export async function POST(req) {
           {
             role: 'user',
             content: [
-              {
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: mediaType,
-                  data: base64Data,
-                },
-              },
+              contentBlock,
               {
                 type: 'text',
                 text: 'この納品書/伝票からワイン・飲料アイテムを抽出してください。JSON配列で返してください。',
@@ -92,12 +112,11 @@ export async function POST(req) {
     }
 
     const result = await response.json();
-    const text = result.content?.[0]?.text || '';
+    const text = (result.content || []).map(c => c.text || '').join('');
 
     // Extract JSON array from response
     let items = [];
     try {
-      // Try to find JSON array in the response
       const jsonMatch = text.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
         items = JSON.parse(jsonMatch[0]);
