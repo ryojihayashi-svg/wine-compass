@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { C, F, SR, EL, MCC, T, fmt, vintageLabel } from '../lib/constants';
+import { C, F, SR, EL, MCC, T, fmt, vintageLabel, CATEGORY_GROUPS } from '../lib/constants';
 import { parseInventoryExcel } from '../lib/excelParser';
 
 // ===== Auth =====
@@ -272,14 +272,12 @@ function BottomSheet({ open, onClose, children }) {
 // ===== fmtY — format yen values (万/億) =====
 const fmtY = (n) => {
   if (!n && n !== 0) return '-';
-  if (n >= 1e8) return (n / 1e8).toFixed(1) + '億';
   if (n >= 1e4) return Math.round(n / 1e4).toLocaleString() + '万';
   return Math.round(n).toLocaleString();
 };
 
 // ===== HomeView — matches Beverage Compass UI =====
-function HomeView({ stores, categories, onNavigate, onWineList, onWineListPrint, onShowAI }) {
-  const [openSection, setOpenSection] = useState(null);
+function HomeView({ stores, categories, onNavigate, onWineList, onWineListPrint, onShowAI, onAIDiagnosis }) {
   const [stats, setStats] = useState(null);
   const [wlStats, setWlStats] = useState(null);
 
@@ -299,10 +297,6 @@ function HomeView({ stores, categories, onNavigate, onWineList, onWineListPrint,
   }, []);
 
   useEffect(() => { fetchAllStats(); }, [fetchAllStats]);
-
-  const toggleSection = (sectionId) => {
-    setOpenSection(prev => prev === sectionId ? null : sectionId);
-  };
 
   const storeCount = stats ? Object.keys(stats.stores || {}).filter(k => (stats.stores[k]?.total || 0) > 0).length : 0;
 
@@ -356,7 +350,7 @@ function HomeView({ stores, categories, onNavigate, onWineList, onWineListPrint,
           </div>
           <div style={{ flex:1 }}>
             <div style={{ fontSize:9, color:'rgba(74,68,64,0.45)', textTransform:'uppercase', letterSpacing:1, fontFamily:F }}>在庫総額</div>
-            <div style={{ fontSize:18, fontWeight:700, color:'#8B6914', fontFamily:F, marginTop:2 }}>{fmtY(Math.round(stats?.totalValue || 0))}</div>
+            <div style={{ fontSize:18, fontWeight:700, color:'#8B6914', fontFamily:F, marginTop:2 }}>{fmtY(Math.round(stats?.totalValue || 0))}円</div>
           </div>
         </div>
       </div>
@@ -366,10 +360,6 @@ function HomeView({ stores, categories, onNavigate, onWineList, onWineListPrint,
         const storeStats = stats?.stores?.[store.id] || null;
         const storeWlStats = wlStats?.stores?.[store.id] || null;
         const hasData = (storeStats && storeStats.total > 0) || (storeWlStats && storeWlStats.total > 0);
-        const invSec = 'inv-' + store.id;
-        const wlSec = 'wl-' + store.id;
-        const invOpen = openSection === invSec;
-        const wlOpen = openSection === wlSec;
 
         return (
           <div key={store.id} style={{ marginBottom:8, borderRadius:2, overflow:'hidden', border:`1px solid ${C.bd}` }}>
@@ -377,7 +367,7 @@ function HomeView({ stores, categories, onNavigate, onWineList, onWineListPrint,
             <div style={{
               background:'linear-gradient(135deg, #EDE8DF 0%, #E4DED4 100%)',
               padding:'14px 16px', color:'#4A4440',
-              display:'flex', justifyContent:'space-between', alignItems:'flex-start',
+              display:'flex', justifyContent:'space-between', alignItems:'center',
             }}>
               <div>
                 <div style={{ fontSize:20, fontWeight:400, fontFamily:getStoreFont(store), letterSpacing:'3px' }}>
@@ -388,99 +378,266 @@ function HomeView({ stores, categories, onNavigate, onWineList, onWineListPrint,
                 </div>
               </div>
               {hasData && (
-                <div style={{ textAlign:'right', flexShrink:0, marginLeft:12 }}>
-                  {storeStats && storeStats.total > 0 && (
-                    <div style={{ display:'flex', alignItems:'center', gap:6, justifyContent:'flex-end' }}>
-                      <span style={{ fontSize:11, color:'rgba(74,68,64,0.55)', fontFamily:F }}>{storeStats.total}種</span>
-                      <span style={{ fontSize:11, color:'rgba(74,68,64,0.55)', fontFamily:F }}>{Math.round(storeStats.totalQty).toLocaleString()}本</span>
-                      <span style={{ fontSize:11, color:C.acc, fontWeight:600, fontFamily:F }}>{fmtY(Math.round(storeStats.totalValue))}</span>
-                    </div>
-                  )}
-                  {storeWlStats && storeWlStats.total > 0 && (
-                    <div style={{ display:'flex', alignItems:'center', gap:6, justifyContent:'flex-end', marginTop:3 }}>
-                      <span style={{ fontSize:10, color:'rgba(74,68,64,0.4)', fontFamily:F }}>リスト {storeWlStats.total}種</span>
-                      {storeWlStats.totalValue > 0 && <span style={{ fontSize:10, color:C.acc, fontWeight:600, fontFamily:F }}>{fmtY(Math.round(storeWlStats.totalValue))}</span>}
-                    </div>
-                  )}
-                </div>
+                <button onClick={() => onAIDiagnosis(store.id)} style={{
+                  padding:'6px 12px', borderRadius:16,
+                  border:`1px solid ${C.bd}`, background:C.card,
+                  fontSize:10, fontWeight:600, color:C.acc, fontFamily:F,
+                  cursor:'pointer', display:'flex', alignItems:'center', gap:4,
+                }}>
+                  <span style={{ fontSize:12 }}>🔬</span>
+                  AI診断
+                </button>
               )}
             </div>
 
-            {/* Accordions */}
+            {/* Stock List & Wine List sections */}
             {hasData && (
               <div style={{ background:C.card }}>
-                {/* 在庫 Accordion */}
-                <div>
-                  <div onClick={() => toggleSection(invSec)} style={{
-                    padding:'9px 16px', cursor:'pointer', display:'flex', alignItems:'center',
-                    borderBottom:`1px solid ${C.bd}`,
-                  }}>
-                    <div style={{ fontSize:12, fontWeight:500, color:C.sub, flex:1 }}>在庫</div>
-                    <Chev open={invOpen} />
+                {/* Stock List */}
+                <div onClick={() => onNavigate('stock-categories', { store: store.id })} style={{
+                  padding:'11px 16px', cursor:'pointer', display:'flex', alignItems:'center',
+                  borderBottom:`1px solid ${C.bd}`,
+                }}>
+                  <div style={{ fontSize:12, fontWeight:600, color:C.tx, flex:1, fontFamily:F }}>Stock List</div>
+                  <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                    {storeStats && storeStats.total > 0 && (
+                      <>
+                        <span style={{ fontSize:11, color:C.sub, fontFamily:F }}>{storeStats.total}種</span>
+                        <span style={{ fontSize:11, color:C.sub, fontFamily:F }}>{Math.round(storeStats.totalQty).toLocaleString()}本</span>
+                        <span style={{ fontSize:11, color:C.acc, fontWeight:600, fontFamily:F }}>{fmtY(Math.round(storeStats.totalValue))}円</span>
+                      </>
+                    )}
+                    <Chev open={false} />
                   </div>
-                  {invOpen && (
-                    <div style={{ padding:'8px 12px 10px' }}>
-                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
-                        {categories.filter(c => !c.parent_id).map(cat => {
-                          const catStats = storeStats.categories?.[cat.id];
-                          if (!catStats || catStats.count === 0) return null;
-                          return (
-                            <CatCard key={cat.id} label={cat.name} count={catStats.count} qty={catStats.qty}
-                              onClick={() => onNavigate('list-items', { store: store.id, category: cat.id, title: `${store.name} · ${cat.name}` })} />
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
                 </div>
 
-                {/* リスト Accordion */}
-                <div>
-                  <div onClick={() => toggleSection(wlSec)} style={{
-                    padding:'9px 16px', cursor:'pointer', display:'flex', alignItems:'center',
-                    borderBottom: wlOpen ? `1px solid ${C.bd}` : 'none',
-                  }}>
-                    <div style={{ fontSize:12, fontWeight:500, color:C.sub, flex:1 }}>
-                      リスト{storeWlStats?.total > 0 ? ` (${storeWlStats.total})` : ''}
-                    </div>
-                    <Chev open={wlOpen} />
+                {/* Wine List */}
+                <div onClick={() => onWineList(store.id)} style={{
+                  padding:'11px 16px', cursor:'pointer', display:'flex', alignItems:'center',
+                }}>
+                  <div style={{ fontSize:12, fontWeight:600, color:C.tx, flex:1, fontFamily:F }}>Wine List</div>
+                  <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                    {storeWlStats && storeWlStats.total > 0 && (
+                      <>
+                        <span style={{ fontSize:11, color:C.sub, fontFamily:F }}>{storeWlStats.total}種</span>
+                        {storeWlStats.totalValue > 0 && <span style={{ fontSize:11, color:C.acc, fontWeight:600, fontFamily:F }}>{fmtY(Math.round(storeWlStats.totalValue))}円</span>}
+                      </>
+                    )}
+                    <Chev open={false} />
                   </div>
-                  {wlOpen && (
-                    <div style={{ padding:'8px 12px 10px' }}>
-                      {storeWlStats && storeWlStats.total > 0 ? (
-                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
-                          {categories.filter(c => !c.parent_id).map(cat => {
-                            const catWl = storeWlStats.categories?.[cat.id];
-                            if (!catWl || catWl.count === 0) return null;
-                            return (
-                              <CatCard key={cat.id} label={cat.name} count={catWl.count} qty={catWl.count}
-                                onClick={() => onWineList(store.id, cat.id)} />
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <div style={{ fontSize:12, color:C.sub, textAlign:'center', padding:'8px 0' }}>リストにアイテムなし</div>
-                      )}
-                      <div style={{ display:'flex', gap:6, marginTop:10 }}>
-                        <button onClick={() => onWineList(store.id)} style={{
-                          flex:1, padding:'10px', borderRadius:2,
-                          border:`1px solid ${C.acc}`, background:'transparent',
-                          fontSize:12, fontFamily:F, color:C.acc, cursor:'pointer', fontWeight:600,
-                        }}>リスト管理</button>
-                        <button onClick={() => onWineListPrint(store.id)} style={{
-                          flex:1, padding:'10px', borderRadius:2,
-                          border:`1px solid ${C.tx}`, background:C.tx,
-                          fontSize:12, fontFamily:F, color:'#fff', cursor:'pointer', fontWeight:500,
-                        }}>ワインリスト印刷</button>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             )}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ===== StockCategoryView — grouped category accordion =====
+function StockCategoryView({ storeId, stores, categories, onBack, onNavigate }) {
+  const [stats, setStats] = useState(null);
+  const [openGroup, setOpenGroup] = useState(null);
+
+  const store = stores.find(s => s.id === storeId);
+  const getStoreName = (s) => {
+    if (s?.id === 'burgundy') return 'Burgundy';
+    if (s?.id === 'ume') return 'umé';
+    if (s?.id === 'ch') return 'C&H';
+    return s?.name || '';
+  };
+  const getStoreFont = (s) => (s?.id === 'burgundy' || s?.id === 'ume' || s?.id === 'ch') ? EL : SR;
+
+  useEffect(() => {
+    fetch(`/api/stats?store=${storeId}`)
+      .then(r => r.json())
+      .then(d => setStats(d))
+      .catch(() => setStats(null));
+  }, [storeId]);
+
+  // Compute grouped stats from allCategories
+  const getGroupStats = (group) => {
+    if (!stats) return { count: 0, qty: 0, value: 0 };
+    if (group.categoryIds === null) {
+      return { count: stats.total || 0, qty: stats.totalQty || 0, value: stats.totalValue || 0 };
+    }
+    let count = 0, qty = 0, value = 0;
+    for (const catId of group.categoryIds) {
+      const s = stats.allCategories?.[catId];
+      if (s) {
+        count += s.count || 0;
+        qty += s.qty || 0;
+        value += s.value || 0;
+      }
+    }
+    return { count, qty, value };
+  };
+
+  return (
+    <div style={{ minHeight:'100vh', background:C.bg }}>
+      <div style={{ padding:'12px 16px', display:'flex', alignItems:'center', gap:10, borderBottom:`1px solid ${C.bd}` }}>
+        <button onClick={onBack} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}><IcoBack /></button>
+        <div style={{ flex:1, fontSize:15, fontWeight:500, fontFamily:getStoreFont(store), color:C.tx }}>
+          {getStoreName(store)} Stock
+        </div>
+      </div>
+
+      <div style={{ padding:'12px 16px 100px' }}>
+        {!stats ? (
+          <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>読み込み中...</div>
+        ) : CATEGORY_GROUPS.map(group => {
+          const gs = getGroupStats(group);
+          if (group.key !== 'all' && gs.count === 0) return null;
+          const isOpen = openGroup === group.key;
+          const mccColors = MCC[group.label] || ['#6A6258', '#F0EDE8'];
+
+          return (
+            <div key={group.key} style={{ marginBottom:4, border:`1px solid ${C.bd}`, borderRadius:2, overflow:'hidden' }}>
+              {/* Group header */}
+              <div onClick={() => {
+                if (group.key === 'all') {
+                  onNavigate('list-items', { store: storeId, title: `${getStoreName(store)} - All Stock` });
+                } else {
+                  setOpenGroup(isOpen ? null : group.key);
+                }
+              }} style={{
+                padding:'12px 16px', background:C.card, cursor:'pointer',
+                display:'flex', justifyContent:'space-between', alignItems:'center',
+              }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <div style={{ width:4, height:24, borderRadius:2, background:mccColors[0], opacity:0.6 }} />
+                  <div style={{ fontSize:13, fontWeight:600, color:C.tx, fontFamily:F }}>{group.label}</div>
+                </div>
+                <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                  <span style={{ fontSize:11, color:C.sub }}>{gs.count}種</span>
+                  <span style={{ fontSize:11, color:C.sub }}>{Math.round(gs.qty).toLocaleString()}本</span>
+                  <span style={{ fontSize:11, color:C.acc, fontWeight:600 }}>{fmtY(Math.round(gs.value))}円</span>
+                  {group.key !== 'all' && <Chev open={isOpen} />}
+                </div>
+              </div>
+
+              {/* Expanded sub-categories */}
+              {isOpen && group.categoryIds && (
+                <div style={{ background:C.bg, borderTop:`1px solid ${C.bd}` }}>
+                  {group.categoryIds.map(catId => {
+                    const cat = categories.find(c => c.id === catId);
+                    if (!cat) return null;
+                    const cs = stats.allCategories?.[catId];
+                    if (!cs || cs.count === 0) return null;
+                    return (
+                      <div key={catId} onClick={() => {
+                        onNavigate('list-items', {
+                          store: storeId,
+                          category: catId,
+                          title: `${getStoreName(store)} · ${cat.name}`,
+                        });
+                      }} style={{
+                        padding:'10px 16px 10px 36px', cursor:'pointer',
+                        borderBottom:`1px solid ${C.bd}`,
+                        display:'flex', justifyContent:'space-between', alignItems:'center',
+                      }}>
+                        <span style={{ fontSize:12, color:C.tx, fontFamily:F }}>{cat.name}</span>
+                        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                          <span style={{ fontSize:10, color:C.sub }}>{cs.count}種</span>
+                          <span style={{ fontSize:10, color:C.sub }}>{Math.round(cs.qty).toLocaleString()}本</span>
+                          <span style={{ fontSize:10, color:C.acc }}>{fmtY(Math.round(cs.value))}円</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {/* Navigate to grouped list */}
+                  <div onClick={() => {
+                    onNavigate('list-items', {
+                      store: storeId,
+                      categories: group.categoryIds.join(','),
+                      title: `${getStoreName(store)} · ${group.label}`,
+                    });
+                  }} style={{
+                    padding:'8px 16px 8px 36px', cursor:'pointer',
+                    display:'flex', justifyContent:'center', alignItems:'center',
+                  }}>
+                    <span style={{ fontSize:11, color:C.acc, fontWeight:600 }}>全て表示 →</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ===== AIDiagnosisView — store inventory AI analysis =====
+function AIDiagnosisView({ storeId, stores, onBack }) {
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const store = stores.find(s => s.id === storeId);
+  const storeName = store?.name || storeId;
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const statsR = await fetch(`/api/stats?store=${storeId}`);
+        if (!statsR.ok) throw new Error('Stats fetch failed');
+        const stats = await statsR.json();
+
+        const catSummary = Object.entries(stats.categories || {})
+          .map(([, s]) => `${s.name}: ${s.count}種/${s.qty}本/${Math.round(s.value / 10000)}万円`)
+          .join(', ');
+
+        const prompt = `店舗「${storeName}」の在庫を分析してください。\n\n概要: ${stats.total}種, ${stats.totalQty}本, 総額${Math.round(stats.totalValue / 10000)}万円\n\nカテゴリ内訳: ${catSummary}\n\n以下を簡潔にまとめてください:\n1. 在庫構成のバランス評価\n2. 過剰在庫・不足の傾向\n3. 価格帯分析と改善提案`;
+
+        const r = await fetch('/api/ai/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: prompt }],
+            system: 'You are a wine inventory analyst. Provide concise, actionable analysis in Japanese. Use bullet points.',
+          }),
+        });
+        if (!r.ok) throw new Error('AI analysis failed');
+        const data = await r.json();
+        setResult(data.text || data.content || JSON.stringify(data));
+      } catch (e) {
+        setError(e.message);
+      }
+      setLoading(false);
+    })();
+  }, [storeId, storeName]);
+
+  return (
+    <div style={{ minHeight: '100vh', background: C.bg }}>
+      <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: `1px solid ${C.bd}` }}>
+        <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><IcoBack /></button>
+        <div style={{ flex: 1, fontSize: 15, fontWeight: 500, fontFamily: SR, color: C.tx }}>
+          🔬 {storeName} AI診断
+        </div>
+      </div>
+
+      <div style={{ padding: '16px 16px 100px' }}>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 60 }}>
+            <div style={{ width: 24, height: 24, border: `2px solid ${C.bd}`, borderTopColor: C.acc, borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
+            <div style={{ fontSize: 13, color: C.sub }}>在庫データを分析中...</div>
+          </div>
+        ) : error ? (
+          <div style={{ textAlign: 'center', padding: 40 }}>
+            <div style={{ fontSize: 13, color: C.red, marginBottom: 8 }}>分析エラー</div>
+            <div style={{ fontSize: 11, color: C.sub }}>{error}</div>
+          </div>
+        ) : (
+          <div style={{
+            background: C.card, border: `1px solid ${C.bd}`, borderRadius: 2,
+            padding: '16px 20px', fontSize: 13, lineHeight: 1.8, color: C.tx, fontFamily: F,
+            whiteSpace: 'pre-wrap',
+          }}>
+            {result}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1582,6 +1739,7 @@ function WineListManager({ storeId, categoryId, stores, categories, onBack, onRe
   const [addPrice, setAddPrice] = useState('');
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
+  const [catFilter, setCatFilter] = useState(null);
   const debRef = useRef(null);
 
   const store = stores.find(s => s.id === storeId);
@@ -1706,6 +1864,33 @@ function WineListManager({ storeId, categoryId, stores, categories, onBack, onRe
         }}>+ 在庫から追加</button>
       </div>
 
+      {/* Category filter tags */}
+      {mode === 'list' && wlItems.length > 0 && (
+        <div style={{ display:'flex', gap:6, overflowX:'auto', padding:'8px 16px', borderBottom:`1px solid ${C.bd}` }}>
+          <button onClick={() => setCatFilter(null)} style={{
+            padding:'4px 12px', borderRadius:14, border:`1px solid ${!catFilter ? C.acc : C.bd}`,
+            background: !catFilter ? C.acc : 'transparent', color: !catFilter ? '#fff' : C.sub,
+            fontSize:11, fontFamily:F, cursor:'pointer', whiteSpace:'nowrap',
+          }}>All</button>
+          {categories.filter(c => !c.parent_id).map(cat => {
+            const hasItems = wlItems.some(wl => {
+              const cid = wl.beverage?.category_id;
+              const parentCat = categories.find(c => c.id === cid);
+              return cid === cat.id || parentCat?.parent_id === cat.id;
+            });
+            if (!hasItems) return null;
+            return (
+              <button key={cat.id} onClick={() => setCatFilter(cat.id)} style={{
+                padding:'4px 12px', borderRadius:14, border:`1px solid ${catFilter === cat.id ? C.acc : C.bd}`,
+                background: catFilter === cat.id ? C.acc : 'transparent',
+                color: catFilter === cat.id ? '#fff' : C.sub,
+                fontSize:11, fontFamily:F, cursor:'pointer', whiteSpace:'nowrap',
+              }}>{cat.name_en || cat.name}</button>
+            );
+          })}
+        </div>
+      )}
+
       <div style={{ padding:'12px 16px 100px' }}>
         {mode === 'list' ? (
           /* ===== Wine List View ===== */
@@ -1719,42 +1904,75 @@ function WineListManager({ storeId, categoryId, stores, categories, onBack, onRe
                 color:'#fff', fontSize:13, fontFamily:F, fontWeight:600, cursor:'pointer',
               }}>在庫から追加</button>
             </div>
-          ) : wlItems.map(wl => {
-            const bev = wl.beverage || {};
-            return (
-              <div key={wl.id} style={{
-                background:C.card, borderRadius:1, padding:'12px 14px 12px 20px',
-                border:`1px solid ${C.bd}`, marginBottom:5, position:'relative',
-              }}>
-                <div style={{
-                  position:'absolute', left:0, top:4, bottom:4, width:3,
-                  background: storeColor[bev.store_id] || C.acc, opacity:0.6, borderRadius:'0 2px 2px 0',
-                }} />
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                      {bev.name || '-'}
-                    </div>
-                    <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>
-                      {bev.producer || ''}{bev.vintage ? ` · ${bev.vintage}` : ''}
-                    </div>
-                    <div style={{ display:'flex', gap:8, marginTop:4, alignItems:'center' }}>
-                      <div style={{ fontSize:12, color:C.acc, fontWeight:600 }}>
-                        {wl.sell_price ? fmt(wl.sell_price) : (bev.price ? fmt(bev.price) : '-')}
+          ) : (() => {
+            const filtered = catFilter
+              ? wlItems.filter(wl => {
+                  const cid = wl.beverage?.category_id;
+                  const parentCat = categories.find(c => c.id === cid);
+                  return cid === catFilter || parentCat?.parent_id === catFilter;
+                })
+              : wlItems;
+            const adjustQty = async (bevId, currentQty, delta) => {
+              const newQty = Math.max(0, (currentQty || 0) + delta);
+              try {
+                await fetch(`/api/beverages/${bevId}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ quantity: newQty }),
+                });
+                await fetchWineList();
+              } catch(e) {}
+            };
+            return filtered.map(wl => {
+              const bev = wl.beverage || {};
+              return (
+                <div key={wl.id} style={{
+                  background:C.card, borderRadius:1, padding:'12px 14px 12px 20px',
+                  border:`1px solid ${C.bd}`, marginBottom:5, position:'relative',
+                }}>
+                  <div style={{
+                    position:'absolute', left:0, top:4, bottom:4, width:3,
+                    background: storeColor[bev.store_id] || C.acc, opacity:0.6, borderRadius:'0 2px 2px 0',
+                  }} />
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        {bev.name || '-'}
                       </div>
-                      {bev.price && wl.sell_price && wl.sell_price !== bev.price && (
-                        <div style={{ fontSize:10, color:C.sub, textDecoration:'line-through' }}>{fmt(bev.price)}</div>
-                      )}
-                      <QBadge q={bev.quantity} />
+                      <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>
+                        {bev.producer || ''}{bev.vintage ? ` · ${bev.vintage}` : ''}
+                      </div>
+                      <div style={{ display:'flex', gap:8, marginTop:4, alignItems:'center' }}>
+                        <div style={{ fontSize:12, color:C.acc, fontWeight:600 }}>
+                          売価: {wl.sell_price ? fmt(wl.sell_price) : (bev.price ? fmt(bev.price) : '-')}
+                        </div>
+                        <div style={{ fontSize:10, color:C.sub }}>
+                          仕入: {bev.cost_price ? fmt(bev.cost_price) : (bev.price ? fmt(bev.price) : '-')}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4, flexShrink:0, marginLeft:8 }}>
+                      <div style={{ fontSize:9, color:C.sub }}>残数</div>
+                      <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                        <button onClick={() => adjustQty(bev.id, bev.quantity, -1)} style={{
+                          width:22, height:22, borderRadius:'50%', border:`1px solid ${C.bd}`,
+                          background:C.card, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:C.tx,
+                        }}>−</button>
+                        <span style={{ fontSize:14, fontWeight:700, color:C.tx, minWidth:20, textAlign:'center', fontFamily:F }}>{bev.quantity || 0}</span>
+                        <button onClick={() => adjustQty(bev.id, bev.quantity, 1)} style={{
+                          width:22, height:22, borderRadius:'50%', border:`1px solid ${C.bd}`,
+                          background:C.card, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:C.tx,
+                        }}>+</button>
+                      </div>
+                      <button onClick={() => removeFromList(wl.id, bev.name)}
+                        style={{ padding:'3px 8px', borderRadius:2, border:`1px solid ${C.bd}`,
+                          background:'transparent', fontSize:9, color:C.sub, cursor:'pointer', fontFamily:F, marginTop:2 }}>外す</button>
                     </div>
                   </div>
-                  <button onClick={() => removeFromList(wl.id, bev.name)}
-                    style={{ flexShrink:0, marginLeft:8, padding:'6px 10px', borderRadius:2, border:`1px solid ${C.bd}`,
-                      background:'transparent', fontSize:11, color:C.sub, cursor:'pointer', fontFamily:F }}>外す</button>
                 </div>
-              </div>
-            );
-          })
+              );
+            });
+          })()
         ) : (
           /* ===== Add from Inventory ===== */
           <>
@@ -2004,7 +2222,7 @@ function StockManager({ onNavigate, onImport, onPhotoImport, onPhotoRemoval, sto
 }
 
 // ===== ItemListPage =====
-function ItemListPage({ title, storeId, categoryId, stores, categories, onBack, onSelect, onAdd }) {
+function ItemListPage({ title, storeId, categoryId, categoriesParam, stores, categories, onBack, onSelect, onAdd }) {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -2017,7 +2235,8 @@ function ItemListPage({ title, storeId, categoryId, stores, categories, onBack, 
     setLoading(true);
     const p = new URLSearchParams();
     if (storeId) p.set('store', storeId);
-    if (categoryId) p.set('category', String(categoryId));
+    if (categoriesParam) p.set('categories', categoriesParam);
+    else if (categoryId) p.set('category', String(categoryId));
     if (q) p.set('q', q);
     p.set('page', String(page));
     p.set('limit', String(PAGE_SIZE));
@@ -2028,7 +2247,7 @@ function ItemListPage({ title, storeId, categoryId, stores, categories, onBack, 
       setTotal(data.total || 0);
     } catch(e) { setItems([]); setTotal(0); }
     setLoading(false);
-  }, [storeId, categoryId, q, page]);
+  }, [storeId, categoryId, categoriesParam, q, page]);
 
   useEffect(() => { fetchItems(); }, [fetchItems]);
 
@@ -2069,10 +2288,12 @@ function ItemListPage({ title, storeId, categoryId, stores, categories, onBack, 
                 {(item.region || item.wc_categories?.name) && <div style={{ fontSize:9, color:'#B0AA9C', fontFamily:F, marginTop:1 }}>{item.region || item.wc_categories?.name || ''}</div>}
                 <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, lineHeight:1.35 }}>{item.name}{item.vintage && <span style={{ fontWeight:400, fontSize:12, color:'#8A8478', marginLeft:3, fontFamily:F }}>{item.vintage}</span>}</div>
                 {item.name_kana && item.name_kana !== item.name && <div style={{ fontSize:10, color:'#B0AA9C', fontFamily:"'Noto Sans JP',sans-serif", marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name_kana}</div>}
+                {item.notes && <div style={{ fontSize:10, color:'#B0AA9C', fontFamily:F, marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.notes}</div>}
               </div>
               <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:3, flexShrink:0, marginLeft:10 }}>
                 <QBadge q={item.quantity} />
-                {item.price != null && <span style={{ fontSize:10, color:'#B0AA9C', fontFamily:F }}>{fmt(item.price)}</span>}
+                {item.cost_price != null && <span style={{ fontSize:10, color:'#B0AA9C', fontFamily:F }}>仕入: {fmt(item.cost_price)}</span>}
+                {item.price != null && <span style={{ fontSize:10, color:C.acc, fontFamily:F }}>売値: {fmt(item.price)}</span>}
               </div>
             </div>
           </div>
@@ -2599,6 +2820,9 @@ export default function App() {
   const openWineListPrint = (storeId) => {
     setSubView({ type: 'wine-list-print', params: storeId ? { store: storeId } : {} });
   };
+  const openAIDiagnosis = (storeId) => {
+    setSubView({ type: 'ai-diagnosis', params: { store: storeId } });
+  };
 
   const saveItem = async (id, updates) => {
     const res = await fetch(`/api/beverages/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) });
@@ -2629,8 +2853,16 @@ export default function App() {
   if (!ok) return <LoginScreen onLogin={login} />;
 
   const renderView = () => {
+    if (subView?.type === 'stock-categories') {
+      return <StockCategoryView storeId={subView.params.store} stores={stores} categories={categories}
+        onBack={goBack} onNavigate={navigate} />;
+    }
+    if (subView?.type === 'ai-diagnosis') {
+      return <AIDiagnosisView storeId={subView.params.store} stores={stores} onBack={goBack} />;
+    }
     if (subView?.type === 'list-items') {
       return <ItemListPage title={subView.params.title} storeId={subView.params.store} categoryId={subView.params.category}
+        categoriesParam={subView.params.categories}
         stores={stores} categories={categories} onBack={goBack} onSelect={setSelected} onAdd={() => setShowAdd(true)} />;
     }
     if (subView?.type === 'wine-list') {
@@ -2641,14 +2873,15 @@ export default function App() {
       return <WineListPrint storeId={subView.params?.store} stores={stores} onBack={goBack} />;
     }
     switch (tab) {
-      case 'home': return <HomeView key={homeKey} stores={stores} categories={categories} onNavigate={navigate} onWineList={openWineList} onWineListPrint={openWineListPrint} onShowAI={() => setShowAI(true)} />;
+      case 'home': return <HomeView key={homeKey} stores={stores} categories={categories} onNavigate={navigate} onWineList={openWineList} onWineListPrint={openWineListPrint} onShowAI={() => setShowAI(true)} onAIDiagnosis={openAIDiagnosis} />;
       case 'search': return <GlobalSearch stores={stores} onSelect={setSelected} />;
       case 'stock': return <StockManager stores={stores} onNavigate={navigate} onImport={() => setShowImport(true)} onPhotoImport={() => setShowPhotoImport(true)} onPhotoRemoval={() => setShowPhotoRemoval(true)} />;
       case 'list': return <WineListStorePicker stores={stores} categories={categories} onOpenStore={openWineList} onOpenPrint={openWineListPrint} onNavigate={navigate} />;
       case 'settings': return (
         <div style={{ padding:'16px 16px 100px' }}>
           <div style={{ fontSize:18, fontWeight:400, letterSpacing:2, color:C.tx, fontFamily:EL, marginBottom:16 }}>設定</div>
-          {/* Wine List Print — global entry */}
+
+          {/* Wine List Print */}
           <button onClick={() => openWineListPrint()} style={{
             width:'100%', padding:14, borderRadius:2, border:`1px solid ${C.bd}`,
             background:C.card, fontSize:13, fontFamily:F, cursor:'pointer', color:C.tx,
@@ -2660,6 +2893,47 @@ export default function App() {
             </span>
             <span style={{ color:C.sub, fontSize:11 }}>全店舗 →</span>
           </button>
+
+          {/* Store Management */}
+          <button style={{
+            width:'100%', padding:14, borderRadius:2, border:`1px solid ${C.bd}`,
+            background:C.card, fontSize:13, fontFamily:F, cursor:'default', color:C.tx,
+            display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8, opacity:0.6,
+          }}>
+            <span style={{ display:'flex', alignItems:'center', gap:8 }}>🏪 店舗管理</span>
+            <span style={{ color:C.sub, fontSize:10 }}>準備中</span>
+          </button>
+
+          {/* Admin Registration */}
+          <button style={{
+            width:'100%', padding:14, borderRadius:2, border:`1px solid ${C.bd}`,
+            background:C.card, fontSize:13, fontFamily:F, cursor:'default', color:C.tx,
+            display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8, opacity:0.6,
+          }}>
+            <span style={{ display:'flex', alignItems:'center', gap:8 }}>👤 管理者登録</span>
+            <span style={{ color:C.sub, fontSize:10 }}>準備中</span>
+          </button>
+
+          {/* Tasting Comment Name */}
+          <button style={{
+            width:'100%', padding:14, borderRadius:2, border:`1px solid ${C.bd}`,
+            background:C.card, fontSize:13, fontFamily:F, cursor:'default', color:C.tx,
+            display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8, opacity:0.6,
+          }}>
+            <span style={{ display:'flex', alignItems:'center', gap:8 }}>✍️ テイスティングコメント名前選択</span>
+            <span style={{ color:C.sub, fontSize:10 }}>準備中</span>
+          </button>
+
+          {/* Per-store Wine List Settings */}
+          <button style={{
+            width:'100%', padding:14, borderRadius:2, border:`1px solid ${C.bd}`,
+            background:C.card, fontSize:13, fontFamily:F, cursor:'default', color:C.tx,
+            display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8, opacity:0.6,
+          }}>
+            <span style={{ display:'flex', alignItems:'center', gap:8 }}>📋 店舗別ワインリスト設定</span>
+            <span style={{ color:C.sub, fontSize:10 }}>準備中</span>
+          </button>
+
           <div style={{ height:16 }} />
           <button onClick={logout} style={{ width:'100%', padding:14, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.red }}>ログアウト</button>
         </div>

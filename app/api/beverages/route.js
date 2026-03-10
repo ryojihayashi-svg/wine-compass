@@ -11,6 +11,7 @@ export async function GET(req) {
   const url = new URL(req.url);
   const store = url.searchParams.get('store') || null;
   const category = url.searchParams.get('category') ? parseInt(url.searchParams.get('category')) : null;
+  const categoriesParam = url.searchParams.get('categories') || null;
   const q = url.searchParams.get('q') || null;
   const page = parseInt(url.searchParams.get('page') || '1');
   const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 250);
@@ -28,7 +29,12 @@ export async function GET(req) {
     .range(offset, offset + limit - 1);
 
   if (store) query = query.eq('store_id', store);
-  if (category) query = query.eq('category_id', category);
+  if (categoriesParam) {
+    const catIds = categoriesParam.split(',').map(Number).filter(n => !isNaN(n));
+    if (catIds.length > 0) query = query.in('category_id', catIds);
+  } else if (category) {
+    query = query.eq('category_id', category);
+  }
   if (q) query = query.or(`name.ilike.%${q}%,producer.ilike.%${q}%,name_kana.ilike.%${q}%`);
   if (stock === 'true') query = query.gt('quantity', 0);
 

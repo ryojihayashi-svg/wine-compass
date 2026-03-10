@@ -100,7 +100,23 @@ export async function GET(req) {
         }
       }
 
-      return { total, totalQty, totalValue, categories: catResult };
+      // Per-category breakdown (including children) for StockCategoryView
+      const allCats = {};
+      for (const cat of (categories || [])) {
+        const dc = directCounts[cat.id];
+        if (dc && dc.count > 0) {
+          allCats[cat.id] = {
+            count: dc.count,
+            qty: dc.qty,
+            value: dc.value,
+            name: cat.name,
+            name_en: cat.name_en,
+            parent_id: cat.parent_id,
+          };
+        }
+      }
+
+      return { total, totalQty, totalValue, categories: catResult, allCategories: allCats };
     };
 
     // Per-store stats
