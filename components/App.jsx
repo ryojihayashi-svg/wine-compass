@@ -900,9 +900,10 @@ function GlobalSearch({ stores, onSelect }) {
 
 // ===== ExcelImport =====
 function ExcelImport({ stores, categories, onClose, onImported }) {
-  const [step, setStep] = useState('select'); // select | preview | importing | done
+  const [step, setStep] = useState('select'); // select | preview | confirm | importing | done
   const [groups, setGroups] = useState([]);
   const [storeId, setStoreId] = useState(stores[0]?.id || '');
+  const [importTarget, setImportTarget] = useState('stock'); // stock | winelist
   const [checked, setChecked] = useState({});
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
@@ -959,7 +960,32 @@ function ExcelImport({ stores, categories, onClose, onImported }) {
       {step === 'select' && (
         <div>
           <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:16 }}>Excel取込</div>
-          <div style={{ fontSize:12, color:C.sub, marginBottom:16 }}>明寂飲料在庫のExcelファイル (.xlsx) を選択してください</div>
+
+          {/* Store selection */}
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontSize:10, color:C.sub, marginBottom:4, textTransform:'uppercase', letterSpacing:0.5 }}>取込先</div>
+            <select value={storeId} onChange={e => setStoreId(e.target.value)}
+              style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F }}>
+              {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+
+          {/* Stock or Wine List */}
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontSize:10, color:C.sub, marginBottom:6, textTransform:'uppercase', letterSpacing:0.5 }}>取込種別</div>
+            <div style={{ display:'flex', gap:8 }}>
+              {[{ val:'stock', label:'在庫' }, { val:'winelist', label:'ワインリスト' }].map(opt => (
+                <button key={opt.val} onClick={() => setImportTarget(opt.val)} style={{
+                  flex:1, padding:'10px 8px', borderRadius:2, fontSize:13, fontFamily:F, fontWeight:600, cursor:'pointer',
+                  border: importTarget === opt.val ? `2px solid ${C.acc}` : `1px solid ${C.bd}`,
+                  background: importTarget === opt.val ? '#F5F0E5' : C.card,
+                  color: importTarget === opt.val ? C.acc : C.tx,
+                }}>{opt.label}</button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ fontSize:12, color:C.sub, marginBottom:14 }}>Excelファイル (.xlsx) を選択してください</div>
           <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleFile} style={{ display:'none' }} />
           <button onClick={() => fileRef.current?.click()} style={{
             width:'100%', padding:16, borderRadius:2, border:`2px dashed ${C.bd}`, background:'transparent',
@@ -972,16 +998,10 @@ function ExcelImport({ stores, categories, onClose, onImported }) {
       {step === 'preview' && (
         <div>
           <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:4 }}>インポートプレビュー</div>
-          <div style={{ fontSize:12, color:C.sub, marginBottom:16 }}>取り込むシートを選択 → {totalItems}件</div>
-
-          {/* Store selector */}
-          <div style={{ marginBottom:16 }}>
-            <div style={{ fontSize:10, color:C.sub, marginBottom:4, textTransform:'uppercase', letterSpacing:0.5 }}>取込先店舗</div>
-            <select value={storeId} onChange={e => setStoreId(e.target.value)}
-              style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F }}>
-              {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
+          <div style={{ fontSize:12, color:C.sub, marginBottom:4 }}>
+            {stores.find(s => s.id === storeId)?.name || storeId} · {importTarget === 'winelist' ? 'ワインリスト' : '在庫'} → {totalItems}件
           </div>
+          <div style={{ fontSize:11, color:C.sub, marginBottom:16 }}>取り込むシートを選択してください</div>
 
           {/* Sheet checkboxes */}
           <div style={{ maxHeight:'40vh', overflowY:'auto', marginBottom:16 }}>
@@ -1000,7 +1020,6 @@ function ExcelImport({ stores, categories, onClose, onImported }) {
                     {checked[g.sheet] && <span style={{ color:'#fff', fontSize:12, fontWeight:700 }}>✓</span>}
                   </div>
                 </div>
-                {/* Show first 3 items as preview */}
                 {checked[g.sheet] && (
                   <div style={{ marginTop:6 }}>
                     {g.items.slice(0, 3).map((item, i) => (
@@ -1018,9 +1037,33 @@ function ExcelImport({ stores, categories, onClose, onImported }) {
           {error && <div style={{ color:C.red, fontSize:12, marginBottom:12 }}>{error}</div>}
 
           <div style={{ display:'flex', gap:10 }}>
-            <button onClick={onClose} style={{ flex:1, padding:12, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.tx }}>キャンセル</button>
-            <button onClick={doImport} disabled={totalItems === 0} style={{
+            <button onClick={() => setStep('select')} style={{ flex:1, padding:12, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.tx }}>戻る</button>
+            <button onClick={() => setStep('confirm')} disabled={totalItems === 0} style={{
               flex:1, padding:12, borderRadius:2, border:'none', background: totalItems > 0 ? C.acc : C.bd,
+              color:'#fff', fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer',
+            }}>確認 →</button>
+          </div>
+        </div>
+      )}
+
+      {step === 'confirm' && (
+        <div>
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:8 }}>上書きしますか？</div>
+          <div style={{ padding:16, background:'#FFF8F0', border:`1px solid #E8D8C0`, borderRadius:2, marginBottom:16 }}>
+            <div style={{ fontSize:13, color:C.tx, lineHeight:1.8 }}>
+              <div><strong>取込先:</strong> {stores.find(s => s.id === storeId)?.name || storeId}</div>
+              <div><strong>種別:</strong> {importTarget === 'winelist' ? 'ワインリスト' : '在庫'}</div>
+              <div><strong>件数:</strong> {totalItems}件</div>
+            </div>
+            <div style={{ fontSize:12, color:'#8A6A30', marginTop:10, lineHeight:1.6 }}>
+              既存データに同名・同ヴィンテージのアイテムがある場合、数量と価格が上書きされます。新規アイテムは追加されます。
+            </div>
+          </div>
+
+          <div style={{ display:'flex', gap:10 }}>
+            <button onClick={() => setStep('preview')} style={{ flex:1, padding:12, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.tx }}>戻る</button>
+            <button onClick={doImport} style={{
+              flex:1, padding:12, borderRadius:2, border:'none', background:C.wine,
               color:'#fff', fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer',
             }}>{totalItems}件を取込</button>
           </div>
@@ -1298,12 +1341,17 @@ function PhotoRemoval({ stores, onClose, onRemoved, onStockZero }) {
     setRemoving(null);
   };
 
+  const cameraRef = useRef(null);
+
+  const handleCameraCapture = (e) => handleCapture(e);
+  const handleFileImport = (e) => handleCapture(e);
+
   return (
     <BottomSheet open={true} onClose={onClose}>
       {step === 'capture' && (
         <div>
           <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:4 }}>写真で出庫</div>
-          <div style={{ fontSize:12, color:C.sub, marginBottom:12 }}>ボトルのラベルを撮影するとAIが銘柄を特定します</div>
+          <div style={{ fontSize:12, color:C.sub, marginBottom:12 }}>ボトルのラベルを撮影、または写真を取り込むとAIが銘柄を特定します</div>
 
           <div style={{ marginBottom:12 }}>
             <div style={{ fontSize:10, color:C.sub, marginBottom:4, textTransform:'uppercase', letterSpacing:0.5 }}>対象店舗</div>
@@ -1313,11 +1361,18 @@ function PhotoRemoval({ stores, onClose, onRemoved, onStockZero }) {
             </select>
           </div>
 
-          <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleCapture} style={{ display:'none' }} />
-          <button onClick={() => fileRef.current?.click()} style={{
-            width:'100%', padding:20, borderRadius:2, border:`2px dashed ${C.bd}`, background:'transparent',
-            fontSize:14, fontFamily:F, color:C.acc, cursor:'pointer', textAlign:'center',
-          }}>📷 ラベルを撮影</button>
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleCameraCapture} style={{ display:'none' }} />
+          <input ref={fileRef} type="file" accept="image/*" onChange={handleFileImport} style={{ display:'none' }} />
+          <div style={{ display:'flex', gap:10 }}>
+            <button onClick={() => cameraRef.current?.click()} style={{
+              flex:1, padding:20, borderRadius:2, border:`2px dashed ${C.bd}`, background:'transparent',
+              fontSize:13, fontFamily:F, color:C.acc, cursor:'pointer', textAlign:'center',
+            }}>📷 ラベルを撮影</button>
+            <button onClick={() => fileRef.current?.click()} style={{
+              flex:1, padding:20, borderRadius:2, border:`2px dashed ${C.bd}`, background:'transparent',
+              fontSize:13, fontFamily:F, color:C.acc, cursor:'pointer', textAlign:'center',
+            }}>📁 写真を取り込み</button>
+          </div>
           {error && <div style={{ color:C.red, fontSize:12, marginTop:12 }}>{error}</div>}
         </div>
       )}
@@ -1343,8 +1398,11 @@ function PhotoRemoval({ stores, onClose, onRemoved, onStockZero }) {
             </div>
           )}
 
-          <div style={{ fontSize:13, fontWeight:500, color:C.tx, marginBottom:8 }}>
-            在庫マッチ ({matches.length}件)
+          <div style={{ fontSize:13, fontWeight:500, color:C.tx, marginBottom:4 }}>
+            このワインを出庫しますか？
+          </div>
+          <div style={{ fontSize:11, color:C.sub, marginBottom:8 }}>
+            在庫マッチ ({matches.length}件) — タップで在庫を1本減らします
           </div>
 
           {matches.length === 0 ? (
@@ -1361,15 +1419,16 @@ function PhotoRemoval({ stores, onClose, onRemoved, onStockZero }) {
                     <div style={{ fontSize:13, fontWeight:500, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                       {item.vintage || 'NV'} {item.name}
                     </div>
+                    <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>{item.producer || ''}</div>
                     <div style={{ marginTop:2 }}><QBadge q={item.quantity} /></div>
                   </div>
                   <button onClick={() => removeOne(item)} disabled={item.quantity <= 0 || removing === item.id}
                     style={{
                       padding:'8px 16px', borderRadius:2, border:'none',
-                      background: item.quantity > 0 ? C.red : C.bd, color:'#fff',
+                      background: item.quantity > 0 ? C.wine : C.bd, color:'#fff',
                       fontSize:13, fontFamily:F, fontWeight:600, cursor: item.quantity > 0 ? 'pointer' : 'default',
                       opacity: removing === item.id ? 0.5 : 1, flexShrink:0, marginLeft:8,
-                    }}>{removing === item.id ? '...' : '-1'}</button>
+                    }}>{removing === item.id ? '...' : '出庫 -1'}</button>
                 </div>
               ))}
             </div>
@@ -2383,20 +2442,49 @@ function WineListStorePicker({ stores, categories, onOpenStore, onOpenPrint, onN
   );
 }
 
-// ===== StockManager =====
-function StockManager({ onNavigate, onImport, onPhotoImport, onPhotoRemoval, stores }) {
-  const exportCSV = () => {
-    const url = `/api/export?format=csv`;
+// ===== CSVExport =====
+function CSVExport({ stores, onClose }) {
+  const [storeId, setStoreId] = useState('');
+
+  const doExport = () => {
+    const url = storeId ? `/api/export?format=csv&store=${storeId}` : `/api/export?format=csv`;
     window.open(url, '_blank');
+    onClose();
   };
 
+  return (
+    <BottomSheet open={true} onClose={onClose}>
+      <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:16 }}>CSV出力</div>
+
+      <div style={{ marginBottom:16 }}>
+        <div style={{ fontSize:10, color:C.sub, marginBottom:4, textTransform:'uppercase', letterSpacing:0.5 }}>店舗を選択</div>
+        <select value={storeId} onChange={e => setStoreId(e.target.value)}
+          style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F }}>
+          <option value="">全店舗</option>
+          {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </div>
+
+      <div style={{ display:'flex', gap:10 }}>
+        <button onClick={onClose} style={{ flex:1, padding:12, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.tx }}>キャンセル</button>
+        <button onClick={doExport} style={{
+          flex:1, padding:12, borderRadius:2, border:'none', background:C.acc,
+          color:'#fff', fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer',
+        }}>ダウンロード</button>
+      </div>
+    </BottomSheet>
+  );
+}
+
+// ===== StockManager =====
+function StockManager({ onNavigate, onImport, onPhotoImport, onPhotoRemoval, onCSVExport, stores }) {
   const actions = [
     { icon: '📦', title: '在庫一覧', desc: '全アイテムを閲覧・管理', action: () => onNavigate('list-items', { title: '全在庫一覧' }) },
     { icon: '📷', title: 'AI入庫', desc: '納品書の写真・PDF→AI読取→在庫追加', action: () => onPhotoImport() },
     { icon: '🍷', title: '写真で出庫', desc: 'ボトル撮影→AI識別→在庫-1', action: () => onPhotoRemoval() },
     { icon: '➕', title: '新規追加', desc: 'アイテムを手動で追加', action: () => onNavigate('add') },
     { icon: '📊', title: 'Excel取込', desc: 'Excelファイルから一括追加', action: () => onImport() },
-    { icon: '📋', title: 'CSV出力', desc: '在庫データをCSVでエクスポート', action: exportCSV },
+    { icon: '📋', title: 'CSV出力', desc: '店舗別に在庫データをCSVでエクスポート', action: () => onCSVExport() },
   ];
 
   return (
@@ -2996,6 +3084,7 @@ export default function App() {
   const [showImport, setShowImport] = useState(false);
   const [showPhotoImport, setShowPhotoImport] = useState(false);
   const [showPhotoRemoval, setShowPhotoRemoval] = useState(false);
+  const [showCSVExport, setShowCSVExport] = useState(false);
   const [toast, setToast] = useState('');
   const [showAI, setShowAI] = useState(false);
   const [replenishData, setReplenishData] = useState(null);
@@ -3097,7 +3186,7 @@ export default function App() {
     switch (tab) {
       case 'home': return <HomeView key={homeKey} stores={stores} categories={categories} onNavigate={navigate} onWineList={openWineList} onWineListPrint={openWineListPrint} onShowAI={() => setShowAI(true)} onAIDiagnosis={openAIDiagnosis} />;
       case 'search': return <GlobalSearch stores={stores} onSelect={setSelected} />;
-      case 'stock': return <StockManager stores={stores} onNavigate={navigate} onImport={() => setShowImport(true)} onPhotoImport={() => setShowPhotoImport(true)} onPhotoRemoval={() => setShowPhotoRemoval(true)} />;
+      case 'stock': return <StockManager stores={stores} onNavigate={navigate} onImport={() => setShowImport(true)} onPhotoImport={() => setShowPhotoImport(true)} onPhotoRemoval={() => setShowPhotoRemoval(true)} onCSVExport={() => setShowCSVExport(true)} />;
       case 'list': return <WineListStorePicker stores={stores} categories={categories} onOpenStore={openWineList} onOpenPrint={openWineListPrint} onNavigate={navigate} />;
       case 'settings': return (
         <div style={{ padding:'16px 16px 100px' }}>
@@ -3183,6 +3272,7 @@ export default function App() {
             if (d.needsAction) setReplenishData(d);
           } catch(e) {}
         }} />}
+      {showCSVExport && <CSVExport stores={stores} onClose={() => setShowCSVExport(false)} />}
       {showAI && <AISommelier onClose={() => setShowAI(false)} />}
       {replenishData && <ReplenishAlert data={replenishData} stores={stores}
         onClose={() => setReplenishData(null)}
