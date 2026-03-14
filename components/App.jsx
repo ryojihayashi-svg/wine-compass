@@ -923,7 +923,10 @@ function ExcelImport({ stores, categories, onClose, onImported }) {
       const fmt = isMultiStoreFormat(wb, XLSX) ? 'store' : 'burgundy';
       setFileFormat(fmt);
       const parsed = parseInventoryExcel(wb, XLSX);
-      if (parsed.length === 0) { setError('データが見つかりません'); return; }
+      if (parsed.length === 0) {
+        setError(`データが見つかりません（シート: ${wb.SheetNames.join(', ')}、形式: ${fmt}）`);
+        return;
+      }
       setGroups(parsed);
       const c = {};
       parsed.forEach(g => { c[g.sheet] = true; });
