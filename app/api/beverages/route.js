@@ -21,12 +21,23 @@ export async function GET(req) {
   const supabase = sb();
 
   // Direct query — includes name_kana for bilingual display
+  // Sort options: name (default), price_asc, price_desc, cost_asc, cost_desc, category, producer
+  const sort = url.searchParams.get('sort') || 'name';
   let query = supabase
     .from('wc_beverages')
     .select('*, wc_categories(name, name_en, parent_id)', { count: 'exact' })
-    .eq('is_deleted', false)
-    .order('name', { ascending: true })
-    .range(offset, offset + limit - 1);
+    .eq('is_deleted', false);
+
+  // Apply sorting
+  switch (sort) {
+    case 'price_desc': query = query.order('cost_price', { ascending: false, nullsFirst: false }); break;
+    case 'price_asc': query = query.order('cost_price', { ascending: true, nullsFirst: false }); break;
+    case 'category': query = query.order('category_id', { ascending: true }).order('name', { ascending: true }); break;
+    case 'producer': query = query.order('producer', { ascending: true, nullsFirst: false }).order('cost_price', { ascending: false, nullsFirst: false }); break;
+    default: query = query.order('name', { ascending: true });
+  }
+
+  query = query.range(offset, offset + limit - 1);
 
   if (store) query = query.eq('store_id', store);
   if (categoriesParam) {

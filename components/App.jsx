@@ -2749,14 +2749,188 @@ function CSVExport({ stores, onClose }) {
   );
 }
 
+// ===== ManualRemoval =====
+function ManualRemoval({ stores, onClose, onRemoved, onStockZero }) {
+  const [storeId, setStoreId] = useState(stores[0]?.id || '');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [cart, setCart] = useState([]);
+  const [step, setStep] = useState('select');
+  const [processing, setProcessing] = useState(false);
+
+  const doSearch = async () => {
+    if (!searchQuery.trim()) return;
+    setLoading(true);
+    try {
+      const resp = await fetch(`/api/beverages?store=${storeId}&q=${encodeURIComponent(searchQuery.trim())}&limit=20&stock=true`);
+      const data = await resp.json();
+      setResults(data.items || []);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+
+  const addToCart = (item) => {
+    if (cart.find(c => c.id === item.id)) return;
+    setCart(prev => [...prev, {
+      id: item.id, name: item.name, name_kana: item.name_kana,
+      vintage: item.vintage, producer: item.producer,
+      quantity: item.quantity, removeQty: 1,
+    }]);
+  };
+
+  const removeFromCart = (id) => setCart(prev => prev.filter(c => c.id !== id));
+
+  const doRemoval = async () => {
+    setProcessing(true);
+    for (const item of cart) {
+      const newQty = Math.max(0, item.quantity - item.removeQty);
+      try {
+        await fetch(`/api/beverages/${item.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quantity: newQty }),
+        });
+        if (newQty === 0 && onStockZero) onStockZero(item.id, storeId);
+      } catch (e) { console.error(e); }
+    }
+    onRemoved();
+    setStep('done');
+    setProcessing(false);
+  };
+
+  const inCart = (id) => cart.find(c => c.id === id);
+
+  return (
+    <BottomSheet open={true} onClose={onClose}>
+      {step === 'select' && (
+        <div>
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:4 }}>選んで出庫</div>
+          <div style={{ fontSize:12, color:C.sub, marginBottom:10 }}>ワインを検索して選択 → まとめて出庫</div>
+
+          <div style={{ marginBottom:10 }}>
+            <div style={{ fontSize:10, color:C.sub, marginBottom:4, textTransform:'uppercase', letterSpacing:0.5 }}>対象店舗</div>
+            <select value={storeId} onChange={e => setStoreId(e.target.value)}
+              style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F }}>
+              {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+
+          <div style={{ display:'flex', gap:6, marginBottom:10 }}>
+            <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && doSearch()}
+              placeholder="ワイン名・生産者で検索..."
+              style={{ flex:1, padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:13, fontFamily:F }} />
+            <button onClick={doSearch} disabled={loading}
+              style={{ padding:'8px 14px', borderRadius:2, border:'none', background:C.acc, color:'#fff', fontSize:13, fontFamily:F, cursor:'pointer' }}>
+              {loading ? '...' : '検索'}
+            </button>
+          </div>
+
+          {results.length > 0 && (
+            <div style={{ maxHeight:'25vh', overflowY:'auto', marginBottom:10 }}>
+              {results.map(item => {
+                const already = inCart(item.id);
+                return (
+                  <div key={item.id} onClick={() => !already && addToCart(item)} style={{
+                    padding:'8px 10px', marginBottom:3, background: already ? '#F0F8F0' : C.card,
+                    border:`1px solid ${already ? '#C8E0C8' : C.bd}`, borderRadius:2,
+                    cursor: already ? 'default' : 'pointer', opacity: already ? 0.7 : 1,
+                    display:'flex', justifyContent:'space-between', alignItems:'center',
+                  }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:600, fontFamily:EL, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
+                      {item.name_kana && item.name_kana !== item.name && <div style={{ fontSize:9, color:'#B0AA9C' }}>{item.name_kana}</div>}
+                      <div style={{ fontSize:10, color:C.sub }}>{item.vintage || 'NV'} · {item.producer || ''} · 在庫:{item.quantity}</div>
+                    </div>
+                    <div style={{ fontSize:16, flexShrink:0, marginLeft:6 }}>{already ? '✅' : '＋'}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {cart.length > 0 && (
+            <div style={{ borderTop:`1px solid ${C.bd}`, paddingTop:10 }}>
+              <div style={{ fontSize:12, fontWeight:600, color:C.tx, marginBottom:6 }}>出庫リスト ({cart.length}本)</div>
+              {cart.map(item => (
+                <div key={item.id} style={{
+                  padding:'8px 10px', marginBottom:3, background:'#FFF8F0', border:'1px solid #E8D8C0', borderRadius:2,
+                  display:'flex', justifyContent:'space-between', alignItems:'center',
+                }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:12, fontWeight:600, fontFamily:EL, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
+                    {item.name_kana && item.name_kana !== item.name && <div style={{ fontSize:9, color:'#B0AA9C' }}>{item.name_kana}</div>}
+                    <div style={{ fontSize:10, color:C.sub }}>{item.vintage || 'NV'} · {item.producer || ''}</div>
+                  </div>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
+                    <span style={{ fontSize:12, fontWeight:600, color:C.wine }}>-{item.removeQty}</span>
+                    <button onClick={(e) => { e.stopPropagation(); removeFromCart(item.id); }}
+                      style={{ width:20, height:20, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card,
+                        fontSize:12, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:C.sub }}>✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display:'flex', gap:10, marginTop:12 }}>
+            <button onClick={onClose} style={{ flex:1, padding:12, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.tx }}>キャンセル</button>
+            <button onClick={() => setStep('confirm')} disabled={cart.length === 0} style={{
+              flex:1, padding:12, borderRadius:2, border:'none', background: cart.length > 0 ? C.wine : C.bd, color:'#fff',
+              fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer',
+            }}>出庫確認 →</button>
+          </div>
+        </div>
+      )}
+
+      {step === 'confirm' && (
+        <div>
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:8 }}>以下の{cart.length}本を出庫しますか？</div>
+          <div style={{ maxHeight:'50vh', overflowY:'auto', marginBottom:16 }}>
+            {cart.map(item => (
+              <div key={item.id} style={{ padding:'10px 12px', marginBottom:4, background:'#FFF8F0', border:'1px solid #E8D8C0', borderRadius:2 }}>
+                <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx }}>{item.name}</div>
+                {item.name_kana && item.name_kana !== item.name && <div style={{ fontSize:10, color:'#B0AA9C', marginTop:1 }}>{item.name_kana}</div>}
+                <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>
+                  {item.vintage || 'NV'} · {item.producer || ''} · 在庫:{item.quantity} → {Math.max(0, item.quantity - item.removeQty)}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display:'flex', gap:10 }}>
+            <button onClick={() => setStep('select')} style={{ flex:1, padding:12, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.tx }}>戻る</button>
+            <button onClick={doRemoval} disabled={processing} style={{
+              flex:1, padding:12, borderRadius:2, border:'none', background:C.wine, color:'#fff',
+              fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer', opacity: processing ? 0.5 : 1,
+            }}>{processing ? '処理中...' : `${cart.length}本を出庫`}</button>
+          </div>
+        </div>
+      )}
+
+      {step === 'done' && (
+        <div style={{ textAlign:'center', padding:20 }}>
+          <div style={{ fontSize:40, marginBottom:12 }}>✅</div>
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:8 }}>出庫完了</div>
+          <div style={{ fontSize:14, color:C.green, fontWeight:600 }}>{cart.length}本 出庫しました</div>
+          <button onClick={onClose} style={{
+            marginTop:20, padding:'12px 32px', borderRadius:2, border:'none', background:C.acc,
+            color:'#fff', fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer',
+          }}>閉じる</button>
+        </div>
+      )}
+    </BottomSheet>
+  );
+}
+
 // ===== StockManager =====
-function StockManager({ onNavigate, onImport, onPhotoImport, onPhotoRemoval, onCSVExport, stores }) {
+function StockManager({ onNavigate, onImport, onPhotoImport, onPhotoRemoval, onManualRemoval, onCSVExport, stores }) {
   const actions = [
     { icon: '📦', title: '在庫一覧', desc: '全アイテムを閲覧・管理', action: () => onNavigate('list-items', { title: '全在庫一覧' }) },
     { icon: '📷', title: 'AI入庫', desc: '納品書の写真・PDF→AI読取→在庫追加', action: () => onPhotoImport() },
-    { icon: '🍷', title: '写真で出庫', desc: 'ボトル撮影→AI識別→在庫-1', action: () => onPhotoRemoval() },
+    { icon: '🍷', title: '写真で出庫', desc: 'ボトル撮影→AI識別→1本ずつ確認', action: () => onPhotoRemoval() },
+    { icon: '🔍', title: '選んで出庫', desc: '検索→選択→まとめて出庫', action: () => onManualRemoval() },
     { icon: '➕', title: '新規追加', desc: 'アイテムを手動で追加', action: () => onNavigate('add') },
-    { icon: '📊', title: 'Excel取込', desc: 'Excelファイルから一括追加', action: () => onImport() },
+    { icon: '📊', title: 'Excel取込', desc: 'バーガンディ在庫・5社在庫を自動判別', action: () => onImport() },
     { icon: '📋', title: 'CSV出力', desc: '店舗別に在庫データをCSVでエクスポート', action: () => onCSVExport() },
   ];
 
@@ -2786,8 +2960,17 @@ function ItemListPage({ title, storeId, categoryId, categoriesParam, stores, cat
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
+  const [sort, setSort] = useState('category');
   const debRef = useRef(null);
   const PAGE_SIZE = 50;
+
+  const SORT_OPTIONS = [
+    { val: 'category', label: 'カテゴリ順' },
+    { val: 'name', label: '名前順' },
+    { val: 'price_desc', label: '高い順' },
+    { val: 'price_asc', label: '安い順' },
+    { val: 'producer', label: '生産者+価格順' },
+  ];
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -2796,6 +2979,7 @@ function ItemListPage({ title, storeId, categoryId, categoriesParam, stores, cat
     if (categoriesParam) p.set('categories', categoriesParam);
     else if (categoryId) p.set('category', String(categoryId));
     if (q) p.set('q', q);
+    p.set('sort', sort);
     p.set('page', String(page));
     p.set('limit', String(PAGE_SIZE));
     try {
@@ -2805,7 +2989,7 @@ function ItemListPage({ title, storeId, categoryId, categoriesParam, stores, cat
       setTotal(data.total || 0);
     } catch(e) { setItems([]); setTotal(0); }
     setLoading(false);
-  }, [storeId, categoryId, categoriesParam, q, page]);
+  }, [storeId, categoryId, categoriesParam, q, page, sort]);
 
   useEffect(() => { fetchItems(); }, [fetchItems]);
 
@@ -2825,9 +3009,21 @@ function ItemListPage({ title, storeId, categoryId, categoriesParam, stores, cat
         <div style={{ flex:1, fontSize:15, fontWeight:500, fontFamily:SR, color:C.tx }}>{title || '在庫一覧'}</div>
         <span style={{ fontSize:12, color:C.sub }}>{total}件</span>
       </div>
-      <div style={{ padding:'10px 16px' }}>
+      <div style={{ padding:'10px 16px 0' }}>
         <input onChange={e => onSearch(e.target.value)} placeholder="検索..."
           style={{ width:'100%', padding:'10px 14px', border:`1px solid ${C.bd}`, borderRadius:10, fontSize:14, fontFamily:F, background:C.card, boxSizing:'border-box', outline:'none' }} />
+      </div>
+      {/* Sort options */}
+      <div style={{ padding:'8px 16px', display:'flex', gap:4, overflowX:'auto' }}>
+        {SORT_OPTIONS.map(opt => (
+          <button key={opt.val} onClick={() => { setSort(opt.val); setPage(1); }}
+            style={{
+              padding:'4px 10px', borderRadius:10, border: sort === opt.val ? `1px solid ${C.acc}` : `1px solid ${C.bd}`,
+              background: sort === opt.val ? '#F5F0E5' : 'transparent',
+              color: sort === opt.val ? C.acc : C.sub,
+              fontSize:10, fontFamily:F, cursor:'pointer', whiteSpace:'nowrap', fontWeight: sort === opt.val ? 600 : 400,
+            }}>{opt.label}</button>
+        ))}
       </div>
       <div style={{ padding:'0 16px 100px' }}>
         {loading ? (
@@ -3358,6 +3554,7 @@ export default function App() {
   const [showPhotoImport, setShowPhotoImport] = useState(false);
   const [showPhotoRemoval, setShowPhotoRemoval] = useState(false);
   const [showCSVExport, setShowCSVExport] = useState(false);
+  const [showManualRemoval, setShowManualRemoval] = useState(false);
   const [toast, setToast] = useState('');
   const [showAI, setShowAI] = useState(false);
   const [replenishData, setReplenishData] = useState(null);
@@ -3459,7 +3656,7 @@ export default function App() {
     switch (tab) {
       case 'home': return <HomeView key={homeKey} stores={stores} categories={categories} onNavigate={navigate} onWineList={openWineList} onWineListPrint={openWineListPrint} onShowAI={() => setShowAI(true)} onAIDiagnosis={openAIDiagnosis} />;
       case 'search': return <GlobalSearch stores={stores} onSelect={setSelected} />;
-      case 'stock': return <StockManager stores={stores} onNavigate={navigate} onImport={() => setShowImport(true)} onPhotoImport={() => setShowPhotoImport(true)} onPhotoRemoval={() => setShowPhotoRemoval(true)} onCSVExport={() => setShowCSVExport(true)} />;
+      case 'stock': return <StockManager stores={stores} onNavigate={navigate} onImport={() => setShowImport(true)} onPhotoImport={() => setShowPhotoImport(true)} onPhotoRemoval={() => setShowPhotoRemoval(true)} onManualRemoval={() => setShowManualRemoval(true)} onCSVExport={() => setShowCSVExport(true)} />;
       case 'list': return <WineListStorePicker stores={stores} categories={categories} onOpenStore={openWineList} onOpenPrint={openWineListPrint} onNavigate={navigate} />;
       case 'settings': return (
         <div style={{ padding:'16px 16px 100px' }}>
@@ -3546,6 +3743,14 @@ export default function App() {
           } catch(e) {}
         }} />}
       {showCSVExport && <CSVExport stores={stores} onClose={() => setShowCSVExport(false)} />}
+      {showManualRemoval && <ManualRemoval stores={stores} onClose={() => setShowManualRemoval(false)} onRemoved={() => setToast('出庫しました')}
+        onStockZero={async (bevId, sid) => {
+          try {
+            const r = await fetch('/api/replenish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ beverage_id: bevId, store_id: sid }) });
+            const d = await r.json();
+            if (d.needsAction) setReplenishData(d);
+          } catch(e) {}
+        }} />}
       {showAI && <AISommelier onClose={() => setShowAI(false)} />}
       {replenishData && <ReplenishAlert data={replenishData} stores={stores}
         onClose={() => setReplenishData(null)}
