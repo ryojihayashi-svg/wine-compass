@@ -367,64 +367,73 @@ function HomeView({ stores, categories, onNavigate, onWineList, onWineListPrint,
             <div style={{
               background:'linear-gradient(135deg, #EDE8DF 0%, #E4DED4 100%)',
               padding:'14px 16px', color:'#4A4440',
-              display:'flex', justifyContent:'space-between', alignItems:'center',
             }}>
-              <div>
-                <div style={{ fontSize:20, fontWeight:400, fontFamily:getStoreFont(store), letterSpacing:'3px' }}>
-                  {getStoreName(store)}
-                </div>
-                <div style={{ fontSize:10, fontWeight:400, color:'rgba(74,68,64,0.5)', fontFamily:EL, letterSpacing:'1.5px', marginTop:3 }}>
-                  {getStoreSubName(store)}
-                </div>
+              <div style={{ fontSize:20, fontWeight:400, fontFamily:getStoreFont(store), letterSpacing:'3px' }}>
+                {getStoreName(store)}
               </div>
-              {hasData && (
-                <button onClick={() => onAIDiagnosis(store.id)} style={{
-                  padding:'6px 12px', borderRadius:16,
-                  border:`1px solid ${C.bd}`, background:C.card,
-                  fontSize:10, fontWeight:600, color:C.acc, fontFamily:F,
-                  cursor:'pointer', display:'flex', alignItems:'center', gap:4,
-                }}>
-                  <span style={{ fontSize:12 }}>🔬</span>
-                  AI診断
-                </button>
-              )}
+              <div style={{ fontSize:10, fontWeight:400, color:'rgba(74,68,64,0.5)', fontFamily:EL, letterSpacing:'1.5px', marginTop:3 }}>
+                {getStoreSubName(store)}
+              </div>
             </div>
 
             {/* Stock List & Wine List sections */}
             {hasData && (
               <div style={{ background:C.card }}>
                 {/* Stock List */}
-                <div onClick={() => onNavigate('stock-categories', { store: store.id })} style={{
-                  padding:'11px 16px', cursor:'pointer', display:'flex', alignItems:'center',
-                  borderBottom:`1px solid ${C.bd}`,
-                }}>
-                  <div style={{ fontSize:12, fontWeight:600, color:C.tx, flex:1, fontFamily:F }}>Stock List</div>
-                  <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                    {storeStats && storeStats.total > 0 && (
-                      <>
-                        <span style={{ fontSize:11, color:C.sub, fontFamily:F }}>{storeStats.total}種</span>
-                        <span style={{ fontSize:11, color:C.sub, fontFamily:F }}>{Math.round(storeStats.totalQty).toLocaleString()}本</span>
-                        <span style={{ fontSize:11, color:C.acc, fontWeight:600, fontFamily:F }}>{fmtY(Math.round(storeStats.totalValue))}円</span>
-                      </>
-                    )}
-                    <Chev open={false} />
+                <div style={{ display:'flex', alignItems:'center', borderBottom:`1px solid ${C.bd}` }}>
+                  <div onClick={() => onNavigate('stock-categories', { store: store.id })} style={{
+                    padding:'11px 16px', cursor:'pointer', display:'flex', alignItems:'center', flex:1,
+                  }}>
+                    <div style={{ fontSize:12, fontWeight:600, color:C.tx, flex:1, fontFamily:F }}>Stock List</div>
+                    <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                      {storeStats && storeStats.total > 0 && (
+                        <>
+                          <span style={{ fontSize:11, color:C.sub, fontFamily:F }}>{storeStats.total}種</span>
+                          <span style={{ fontSize:11, color:C.sub, fontFamily:F }}>{Math.round(storeStats.totalQty).toLocaleString()}本</span>
+                          <span style={{ fontSize:11, color:C.acc, fontWeight:600, fontFamily:F }}>{fmtY(Math.round(storeStats.totalValue))}円</span>
+                        </>
+                      )}
+                      <Chev open={false} />
+                    </div>
                   </div>
+                  {storeStats && storeStats.total > 0 && (
+                    <button onClick={(e) => { e.stopPropagation(); onAIDiagnosis(store.id, 'stock'); }} style={{
+                      padding:'6px 10px', marginRight:12, borderRadius:14,
+                      border:`1px solid ${C.bd}`, background:C.bg,
+                      fontSize:9, fontWeight:600, color:C.acc, fontFamily:F,
+                      cursor:'pointer', display:'flex', alignItems:'center', gap:3, whiteSpace:'nowrap',
+                    }}>
+                      <span style={{ fontSize:11 }}>🔬</span>AI
+                    </button>
+                  )}
                 </div>
 
                 {/* Wine List */}
-                <div onClick={() => onWineList(store.id)} style={{
-                  padding:'11px 16px', cursor:'pointer', display:'flex', alignItems:'center',
-                }}>
-                  <div style={{ fontSize:12, fontWeight:600, color:C.tx, flex:1, fontFamily:F }}>Wine List</div>
-                  <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                    {storeWlStats && storeWlStats.total > 0 && (
-                      <>
-                        <span style={{ fontSize:11, color:C.sub, fontFamily:F }}>{storeWlStats.total}種</span>
-                        {storeWlStats.totalValue > 0 && <span style={{ fontSize:11, color:C.acc, fontWeight:600, fontFamily:F }}>{fmtY(Math.round(storeWlStats.totalValue))}円</span>}
-                      </>
-                    )}
-                    <Chev open={false} />
+                <div style={{ display:'flex', alignItems:'center' }}>
+                  <div onClick={() => onWineList(store.id)} style={{
+                    padding:'11px 16px', cursor:'pointer', display:'flex', alignItems:'center', flex:1,
+                  }}>
+                    <div style={{ fontSize:12, fontWeight:600, color:C.tx, flex:1, fontFamily:F }}>Wine List</div>
+                    <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                      {storeWlStats && storeWlStats.total > 0 && (
+                        <>
+                          <span style={{ fontSize:11, color:C.sub, fontFamily:F }}>{storeWlStats.total}種</span>
+                          {storeWlStats.totalValue > 0 && <span style={{ fontSize:11, color:C.acc, fontWeight:600, fontFamily:F }}>{fmtY(Math.round(storeWlStats.totalValue))}円</span>}
+                        </>
+                      )}
+                      <Chev open={false} />
+                    </div>
                   </div>
+                  {storeWlStats && storeWlStats.total > 0 && (
+                    <button onClick={(e) => { e.stopPropagation(); onAIDiagnosis(store.id, 'winelist'); }} style={{
+                      padding:'6px 10px', marginRight:12, borderRadius:14,
+                      border:`1px solid ${C.bd}`, background:C.bg,
+                      fontSize:9, fontWeight:600, color:C.acc, fontFamily:F,
+                      cursor:'pointer', display:'flex', alignItems:'center', gap:3, whiteSpace:'nowrap',
+                    }}>
+                      <span style={{ fontSize:11 }}>🔬</span>AI
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -569,51 +578,92 @@ function StockCategoryView({ storeId, stores, categories, onBack, onNavigate }) 
   );
 }
 
-// ===== AIDiagnosisView — store inventory AI analysis =====
-function AIDiagnosisView({ storeId, stores, onBack }) {
+// ===== AIDiagnosisView — store AI analysis (stock or winelist mode) =====
+function AIDiagnosisView({ storeId, stores, mode, onBack }) {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const store = stores.find(s => s.id === storeId);
   const storeName = store?.name || storeId;
+  const isWineList = mode === 'winelist';
+  const title = isWineList ? `${storeName} ワインリストAI診断` : `${storeName} 在庫AI診断`;
 
   useEffect(() => {
     (async () => {
       try {
-        const statsR = await fetch(`/api/stats?store=${storeId}`);
-        if (!statsR.ok) throw new Error('Stats fetch failed');
-        const stats = await statsR.json();
+        if (isWineList) {
+          // Fetch wine list items for this store
+          const wlR = await fetch(`/api/wine-list?store=${storeId}`);
+          if (!wlR.ok) throw new Error('Wine list fetch failed');
+          const wlData = await wlR.json();
+          const items = wlData.items || wlData || [];
 
-        const catSummary = Object.entries(stats.categories || {})
-          .map(([, s]) => `${s.name}: ${s.count}種/${s.qty}本/${Math.round(s.value / 10000)}万円`)
-          .join(', ');
+          const catBreakdown = {};
+          let totalItems = 0, totalValue = 0, minPrice = Infinity, maxPrice = 0;
+          for (const item of items) {
+            const catName = item.beverage?.category_name || item.category?.name || '不明';
+            if (!catBreakdown[catName]) catBreakdown[catName] = { count: 0, prices: [] };
+            catBreakdown[catName].count++;
+            const p = item.beverage?.price || 0;
+            if (p > 0) { catBreakdown[catName].prices.push(p); totalValue += p; if (p < minPrice) minPrice = p; if (p > maxPrice) maxPrice = p; }
+            totalItems++;
+          }
+          const catSummary = Object.entries(catBreakdown)
+            .map(([name, d]) => {
+              const avgP = d.prices.length > 0 ? Math.round(d.prices.reduce((a,b)=>a+b,0) / d.prices.length) : 0;
+              return `${name}: ${d.count}種 (平均${Math.round(avgP/1000)}千円)`;
+            }).join(', ');
 
-        const prompt = `店舗「${storeName}」の在庫を分析してください。\n\n概要: ${stats.total}種, ${stats.totalQty}本, 総額${Math.round(stats.totalValue / 10000)}万円\n\nカテゴリ内訳: ${catSummary}\n\n以下を簡潔にまとめてください:\n1. 在庫構成のバランス評価\n2. 過剰在庫・不足の傾向\n3. 価格帯分析と改善提案`;
+          const prompt = `店舗「${storeName}」のワインリストを分析してください。\n\n概要: ${totalItems}種掲載, 価格帯 ¥${minPrice === Infinity ? 0 : minPrice.toLocaleString()}〜¥${maxPrice.toLocaleString()}\n\nカテゴリ内訳: ${catSummary}\n\n以下を簡潔にまとめてください:\n1. ワインリスト全体のバランス評価（シャンパーニュ、白、赤、その他の比率）\n2. 価格帯のバランス（エントリー/ミドル/ハイエンド）\n3. 強みと弱み\n4. 補充すべきカテゴリ・価格帯の提案`;
 
-        const r = await fetch('/api/ai/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            messages: [{ role: 'user', content: prompt }],
-            system: 'You are a wine inventory analyst. Provide concise, actionable analysis in Japanese. Use bullet points.',
-          }),
-        });
-        if (!r.ok) throw new Error('AI analysis failed');
-        const data = await r.json();
-        setResult(data.text || data.content || JSON.stringify(data));
+          const r = await fetch('/api/ai/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: [{ role: 'user', content: prompt }],
+              system: 'You are a sommelier and wine list consultant. Provide concise, actionable wine list analysis in Japanese. Use bullet points. Consider balance of regions, price tiers, and guest experience.',
+            }),
+          });
+          if (!r.ok) throw new Error('AI analysis failed');
+          const data = await r.json();
+          setResult(data.text || data.content || JSON.stringify(data));
+        } else {
+          // Stock analysis (existing logic)
+          const statsR = await fetch(`/api/stats?store=${storeId}`);
+          if (!statsR.ok) throw new Error('Stats fetch failed');
+          const stats = await statsR.json();
+
+          const catSummary = Object.entries(stats.categories || {})
+            .map(([, s]) => `${s.name}: ${s.count}種/${s.qty}本/${Math.round(s.value / 10000)}万円`)
+            .join(', ');
+
+          const prompt = `店舗「${storeName}」の在庫を分析してください。\n\n概要: ${stats.total}種, ${stats.totalQty}本, 総額${Math.round(stats.totalValue / 10000)}万円\n\nカテゴリ内訳: ${catSummary}\n\n以下を簡潔にまとめてください:\n1. 在庫構成のバランス評価\n2. 過剰在庫・不足の傾向\n3. 価格帯分析と改善提案`;
+
+          const r = await fetch('/api/ai/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: [{ role: 'user', content: prompt }],
+              system: 'You are a wine inventory analyst. Provide concise, actionable analysis in Japanese. Use bullet points.',
+            }),
+          });
+          if (!r.ok) throw new Error('AI analysis failed');
+          const data = await r.json();
+          setResult(data.text || data.content || JSON.stringify(data));
+        }
       } catch (e) {
         setError(e.message);
       }
       setLoading(false);
     })();
-  }, [storeId, storeName]);
+  }, [storeId, storeName, isWineList]);
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg }}>
       <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: `1px solid ${C.bd}` }}>
         <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><IcoBack /></button>
         <div style={{ flex: 1, fontSize: 15, fontWeight: 500, fontFamily: SR, color: C.tx }}>
-          🔬 {storeName} AI診断
+          🔬 {title}
         </div>
       </div>
 
@@ -621,7 +671,7 @@ function AIDiagnosisView({ storeId, stores, onBack }) {
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60 }}>
             <div style={{ width: 24, height: 24, border: `2px solid ${C.bd}`, borderTopColor: C.acc, borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
-            <div style={{ fontSize: 13, color: C.sub }}>在庫データを分析中...</div>
+            <div style={{ fontSize: 13, color: C.sub }}>{isWineList ? 'ワインリストを分析中...' : '在庫データを分析中...'}</div>
           </div>
         ) : error ? (
           <div style={{ textAlign: 'center', padding: 40 }}>
@@ -2968,8 +3018,8 @@ export default function App() {
   const openWineListPrint = (storeId) => {
     setSubView({ type: 'wine-list-print', params: storeId ? { store: storeId } : {} });
   };
-  const openAIDiagnosis = (storeId) => {
-    setSubView({ type: 'ai-diagnosis', params: { store: storeId } });
+  const openAIDiagnosis = (storeId, mode = 'stock') => {
+    setSubView({ type: 'ai-diagnosis', params: { store: storeId, mode } });
   };
 
   const saveItem = async (id, updates) => {
@@ -3020,7 +3070,7 @@ export default function App() {
         onBack={goBack} onNavigate={navigate} />;
     }
     if (subView?.type === 'ai-diagnosis') {
-      return <AIDiagnosisView storeId={subView.params.store} stores={stores} onBack={goBack} />;
+      return <AIDiagnosisView storeId={subView.params.store} stores={stores} mode={subView.params.mode || 'stock'} onBack={goBack} />;
     }
     if (subView?.type === 'list-items') {
       return <ItemListPage title={subView.params.title} storeId={subView.params.store} categoryId={subView.params.category}
