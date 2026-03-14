@@ -1307,10 +1307,10 @@ function PhotoImport({ stores, categories, onClose, onImported }) {
 
       {step === 'preview' && (
         <div>
-          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:4 }}>読み取り結果</div>
-          <div style={{ fontSize:12, color:C.sub, marginBottom:12 }}>{totalChecked}/{items.length}件 選択中</div>
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:4 }}>読み取り結果 — 1件ずつ確認</div>
+          <div style={{ fontSize:12, color:C.sub, marginBottom:8 }}>{totalChecked}/{items.length}件 選択中 · チェックを外すと入庫しません</div>
 
-          <div style={{ marginBottom:12 }}>
+          <div style={{ marginBottom:10 }}>
             <div style={{ fontSize:10, color:C.sub, marginBottom:4, textTransform:'uppercase', letterSpacing:0.5 }}>取込先店舗</div>
             <select value={storeId} onChange={e => setStoreId(e.target.value)}
               style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F }}>
@@ -1321,22 +1321,34 @@ function PhotoImport({ stores, categories, onClose, onImported }) {
           <div style={{ maxHeight:'45vh', overflowY:'auto', marginBottom:12 }}>
             {items.map((item, i) => (
               <div key={i} style={{
-                padding:'10px 12px', marginBottom:4, background: checked[i] ? '#F5F3EE' : C.card,
-                border:`1px solid ${checked[i] ? C.acc : C.bd}`, borderRadius:2, cursor:'pointer',
-              }} onClick={() => setChecked(c => ({ ...c, [i]: !c[i] }))}>
+                padding:'10px 12px', marginBottom:6, background: checked[i] ? '#F5F3EE' : '#FAFAFA',
+                border:`1px solid ${checked[i] ? C.acc : '#E0D8D0'}`, borderRadius:2,
+                opacity: checked[i] ? 1 : 0.6,
+              }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
                   <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:13, fontWeight:500, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                      {item.vintage || 'NV'} {item.name || item.name_ja}
+                    {/* Original language name */}
+                    <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, lineHeight:1.3 }}>
+                      {item.name || item.name_ja}
                     </div>
-                    {item.name_ja && item.name && <div style={{ fontSize:11, color:C.sub }}>{item.name_ja}</div>}
-                    <div style={{ fontSize:10, color:C.sub, marginTop:2 }}>
-                      {item.producer || ''}{item.quantity ? ` · ${item.quantity}本` : ''}{item.cost_price ? ` · ¥${item.cost_price.toLocaleString()}` : ''}
+                    {/* Kana name */}
+                    {item.name_ja && item.name && item.name_ja !== item.name && (
+                      <div style={{ fontSize:10, color:'#B0AA9C', marginTop:1 }}>{item.name_ja}</div>
+                    )}
+                    {/* Details row */}
+                    <div style={{ fontSize:10, color:C.sub, marginTop:3, display:'flex', flexWrap:'wrap', gap:4 }}>
+                      <span style={{ background:'#F0EDE8', padding:'1px 5px', borderRadius:2 }}>{item.vintage || 'NV'}</span>
+                      {item.producer && <span>{item.producer}</span>}
+                      {item.quantity && <span style={{ fontWeight:600 }}>{item.quantity}本</span>}
+                      {item.cost_price && <span>¥{item.cost_price.toLocaleString()}</span>}
                     </div>
                   </div>
-                  <div style={{ width:18, height:18, borderRadius:2, border:`2px solid ${checked[i] ? C.acc : C.bd}`,
-                    background: checked[i] ? C.acc : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginLeft:8, marginTop:2 }}>
-                    {checked[i] && <span style={{ color:'#fff', fontSize:12, fontWeight:700 }}>✓</span>}
+                  {/* Toggle checkbox */}
+                  <div onClick={() => setChecked(c => ({ ...c, [i]: !c[i] }))}
+                    style={{ width:22, height:22, borderRadius:2, border:`2px solid ${checked[i] ? C.acc : '#C8C0B8'}`,
+                    background: checked[i] ? C.acc : 'transparent', display:'flex', alignItems:'center', justifyContent:'center',
+                    flexShrink:0, marginLeft:8, marginTop:2, cursor:'pointer' }}>
+                    {checked[i] && <span style={{ color:'#fff', fontSize:14, fontWeight:700 }}>✓</span>}
                   </div>
                 </div>
               </div>
@@ -1378,47 +1390,87 @@ function PhotoImport({ stores, categories, onClose, onImported }) {
 
 // ===== PhotoRemoval =====
 function PhotoRemoval({ stores, onClose, onRemoved, onStockZero }) {
-  const [step, setStep] = useState('capture'); // capture | loading | result
-  const [identified, setIdentified] = useState(null);
-  const [matches, setMatches] = useState([]);
+  // Steps: capture → loading → queue (review each) → done
+  const [step, setStep] = useState('capture'); // capture | loading | queue | search | done
+  const [queue, setQueue] = useState([]); // [{identified, matches, confirmed, selectedId}]
+  const [currentIdx, setCurrentIdx] = useState(0);
   const [storeId, setStoreId] = useState(stores[0]?.id || '');
   const [error, setError] = useState('');
   const [removing, setRemoving] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [processedCount, setProcessedCount] = useState(0);
+  const [totalProcessed, setTotalProcessed] = useState(0);
+  const cameraRef = useRef(null);
   const fileRef = useRef(null);
+  const multiRef = useRef(null);
 
-  const handleCapture = async (e) => {
+  // Process single image → AI identify
+  const processImage = async (file) => {
+    const reader = new FileReader();
+    const base64 = await new Promise((resolve, reject) => {
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    const resp = await fetch('/api/ai/identify-bottle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: base64, store_id: storeId }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'AI識別エラー');
+    return { identified: data.identified, matches: data.matches || [] };
+  };
+
+  // Handle single capture
+  const handleSingle = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setError('');
     setStep('loading');
-
+    setProcessedCount(0);
+    setTotalProcessed(1);
     try {
-      const reader = new FileReader();
-      const base64 = await new Promise((resolve, reject) => {
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-
-      const resp = await fetch('/api/ai/identify-bottle', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: base64, store_id: storeId }),
-      });
-
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || 'AI識別エラー');
-
-      setIdentified(data.identified);
-      setMatches(data.matches || []);
-      setStep('result');
+      const result = await processImage(file);
+      setQueue([{ ...result, confirmed: false, selectedId: null }]);
+      setCurrentIdx(0);
+      setStep('queue');
     } catch (err) {
       setError(err.message);
       setStep('capture');
     }
   };
 
-  const removeOne = async (item) => {
+  // Handle multiple files
+  const handleMulti = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    setError('');
+    setStep('loading');
+    setProcessedCount(0);
+    setTotalProcessed(files.length);
+
+    const results = [];
+    for (let i = 0; i < files.length; i++) {
+      setProcessedCount(i + 1);
+      try {
+        const result = await processImage(files[i]);
+        results.push({ ...result, confirmed: false, selectedId: null });
+      } catch (err) {
+        results.push({ identified: { name: files[i].name, error: err.message }, matches: [], confirmed: false, selectedId: null });
+      }
+    }
+    setQueue(results);
+    setCurrentIdx(0);
+    setStep('queue');
+  };
+
+  const current = queue[currentIdx];
+
+  // Confirm removal for current item
+  const confirmRemove = async (item) => {
     if (item.quantity <= 0) return;
     setRemoving(item.id);
     const newQty = item.quantity - 1;
@@ -1428,29 +1480,46 @@ function PhotoRemoval({ stores, onClose, onRemoved, onStockZero }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ quantity: Math.max(0, newQty) }),
       });
-      setMatches(prev => prev.map(m => m.id === item.id ? { ...m, quantity: newQty } : m));
+      // Mark as confirmed
+      setQueue(prev => prev.map((q, i) => i === currentIdx ? { ...q, confirmed: true, selectedId: item.id, matchQty: newQty } : q));
       onRemoved();
-      // Check replenishment when stock hits 0
-      if (newQty === 0 && onStockZero) {
-        onStockZero(item.id, storeId);
-      }
-    } catch (err) {
-      setError(err.message);
-    }
+      if (newQty === 0 && onStockZero) onStockZero(item.id, storeId);
+      // Auto-advance after brief delay
+      setTimeout(() => {
+        if (currentIdx < queue.length - 1) setCurrentIdx(currentIdx + 1);
+        else setStep('done');
+      }, 600);
+    } catch (err) { setError(err.message); }
     setRemoving(null);
   };
 
-  const cameraRef = useRef(null);
+  // Skip current
+  const skipCurrent = () => {
+    setQueue(prev => prev.map((q, i) => i === currentIdx ? { ...q, confirmed: false, selectedId: 'skipped' } : q));
+    if (currentIdx < queue.length - 1) setCurrentIdx(currentIdx + 1);
+    else setStep('done');
+  };
 
-  const handleCameraCapture = (e) => handleCapture(e);
-  const handleFileImport = (e) => handleCapture(e);
+  // Manual search
+  const doSearch = async () => {
+    if (!searchQuery.trim()) return;
+    setSearchLoading(true);
+    try {
+      const resp = await fetch(`/api/beverages?store=${storeId}&q=${encodeURIComponent(searchQuery.trim())}&limit=20`);
+      const data = await resp.json();
+      setSearchResults(data.items || data || []);
+    } catch (err) { setError(err.message); }
+    setSearchLoading(false);
+  };
+
+  const confirmedCount = queue.filter(q => q.confirmed).length;
 
   return (
     <BottomSheet open={true} onClose={onClose}>
       {step === 'capture' && (
         <div>
           <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:4 }}>写真で出庫</div>
-          <div style={{ fontSize:12, color:C.sub, marginBottom:12 }}>ボトルのラベルを撮影、または写真を取り込むとAIが銘柄を特定します</div>
+          <div style={{ fontSize:12, color:C.sub, marginBottom:12 }}>ボトルのラベルを撮影 → AIが特定 → 1本ずつ確認</div>
 
           <div style={{ marginBottom:12 }}>
             <div style={{ fontSize:10, color:C.sub, marginBottom:4, textTransform:'uppercase', letterSpacing:0.5 }}>対象店舗</div>
@@ -1460,19 +1529,24 @@ function PhotoRemoval({ stores, onClose, onRemoved, onStockZero }) {
             </select>
           </div>
 
-          <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleCameraCapture} style={{ display:'none' }} />
-          <input ref={fileRef} type="file" accept="image/*" onChange={handleFileImport} style={{ display:'none' }} />
-          <div style={{ display:'flex', gap:10 }}>
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleSingle} style={{ display:'none' }} />
+          <input ref={fileRef} type="file" accept="image/*" onChange={handleSingle} style={{ display:'none' }} />
+          <input ref={multiRef} type="file" accept="image/*" multiple onChange={handleMulti} style={{ display:'none' }} />
+          <div style={{ display:'flex', gap:8, marginBottom:8 }}>
             <button onClick={() => cameraRef.current?.click()} style={{
-              flex:1, padding:20, borderRadius:2, border:`2px dashed ${C.bd}`, background:'transparent',
-              fontSize:13, fontFamily:F, color:C.acc, cursor:'pointer', textAlign:'center',
-            }}>📷 ラベルを撮影</button>
+              flex:1, padding:16, borderRadius:2, border:`2px dashed ${C.bd}`, background:'transparent',
+              fontSize:12, fontFamily:F, color:C.acc, cursor:'pointer', textAlign:'center',
+            }}>📷 撮影</button>
             <button onClick={() => fileRef.current?.click()} style={{
-              flex:1, padding:20, borderRadius:2, border:`2px dashed ${C.bd}`, background:'transparent',
-              fontSize:13, fontFamily:F, color:C.acc, cursor:'pointer', textAlign:'center',
-            }}>📁 写真を取り込み</button>
+              flex:1, padding:16, borderRadius:2, border:`2px dashed ${C.bd}`, background:'transparent',
+              fontSize:12, fontFamily:F, color:C.acc, cursor:'pointer', textAlign:'center',
+            }}>📁 写真1枚</button>
+            <button onClick={() => multiRef.current?.click()} style={{
+              flex:1, padding:16, borderRadius:2, border:`2px dashed ${C.bd}`, background:'transparent',
+              fontSize:12, fontFamily:F, color:C.acc, cursor:'pointer', textAlign:'center',
+            }}>📁 複数枚</button>
           </div>
-          {error && <div style={{ color:C.red, fontSize:12, marginTop:12 }}>{error}</div>}
+          {error && <div style={{ color:C.red, fontSize:12, marginTop:8 }}>{error}</div>}
         </div>
       )}
 
@@ -1480,64 +1554,164 @@ function PhotoRemoval({ stores, onClose, onRemoved, onStockZero }) {
         <div style={{ textAlign:'center', padding:40 }}>
           <div style={{ fontSize:32, marginBottom:12 }}>🍷</div>
           <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:8 }}>ラベル解析中...</div>
-          <div style={{ fontSize:13, color:C.sub }}>ワインを特定しています</div>
+          <div style={{ fontSize:13, color:C.sub }}>
+            {totalProcessed > 1 ? `${processedCount} / ${totalProcessed} 枚を処理中` : 'ワインを特定しています'}
+          </div>
         </div>
       )}
 
-      {step === 'result' && (
+      {step === 'queue' && current && (
         <div>
-          {identified && (
-            <div style={{ padding:12, background:'#F5F3EE', borderRadius:2, marginBottom:12, border:`1px solid ${C.bd}` }}>
-              <div style={{ fontSize:10, color:C.sub, marginBottom:4 }}>AI識別結果</div>
-              <div style={{ fontSize:14, fontWeight:500, color:C.tx, fontFamily:EL }}>{identified.name}</div>
-              {identified.name_ja && <div style={{ fontSize:12, color:C.sub }}>{identified.name_ja}</div>}
-              <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>
-                {identified.vintage || 'NV'} · {identified.producer || ''} · {identified.region || ''}
+          {/* Progress bar */}
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+            <div style={{ fontSize:14, fontWeight:500, fontFamily:SR, color:C.tx }}>
+              出庫確認 {currentIdx + 1} / {queue.length}
+            </div>
+            <div style={{ fontSize:11, color:C.sub }}>{confirmedCount}本 出庫済</div>
+          </div>
+          {queue.length > 1 && (
+            <div style={{ height:3, background:C.bd, borderRadius:2, marginBottom:12 }}>
+              <div style={{ height:3, background:C.acc, borderRadius:2, width:`${((currentIdx + 1) / queue.length) * 100}%`, transition:'width 0.3s' }} />
+            </div>
+          )}
+
+          {/* AI identification result */}
+          {current.identified && (
+            <div style={{ padding:10, background:'#F5F3EE', borderRadius:2, marginBottom:10, border:`1px solid ${C.bd}` }}>
+              <div style={{ fontSize:10, color:C.sub, marginBottom:2 }}>AI識別結果</div>
+              <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx }}>{current.identified.name}</div>
+              {current.identified.name_ja && <div style={{ fontSize:11, color:C.sub }}>{current.identified.name_ja}</div>}
+              <div style={{ fontSize:10, color:C.sub, marginTop:2 }}>
+                {current.identified.vintage || 'NV'} · {current.identified.producer || ''}
               </div>
             </div>
           )}
 
-          <div style={{ fontSize:13, fontWeight:500, color:C.tx, marginBottom:4 }}>
-            このワインを出庫しますか？
-          </div>
-          <div style={{ fontSize:11, color:C.sub, marginBottom:8 }}>
-            在庫マッチ ({matches.length}件) — タップで在庫を1本減らします
-          </div>
-
-          {matches.length === 0 ? (
-            <div style={{ textAlign:'center', padding:20, color:C.sub, fontSize:13 }}>該当する在庫が見つかりませんでした</div>
-          ) : (
-            <div style={{ maxHeight:'40vh', overflowY:'auto', marginBottom:12 }}>
-              {matches.map(item => (
-                <div key={item.id} style={{
-                  padding:'10px 12px', marginBottom:4, background:C.card,
-                  border:`1px solid ${C.bd}`, borderRadius:2,
-                  display:'flex', justifyContent:'space-between', alignItems:'center',
-                }}>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:13, fontWeight:500, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                      {item.vintage || 'NV'} {item.name}
-                    </div>
-                    <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>{item.producer || ''}</div>
-                    <div style={{ marginTop:2 }}><QBadge q={item.quantity} /></div>
-                  </div>
-                  <button onClick={() => removeOne(item)} disabled={item.quantity <= 0 || removing === item.id}
-                    style={{
-                      padding:'8px 16px', borderRadius:2, border:'none',
-                      background: item.quantity > 0 ? C.wine : C.bd, color:'#fff',
-                      fontSize:13, fontFamily:F, fontWeight:600, cursor: item.quantity > 0 ? 'pointer' : 'default',
-                      opacity: removing === item.id ? 0.5 : 1, flexShrink:0, marginLeft:8,
-                    }}>{removing === item.id ? '...' : '出庫 -1'}</button>
-                </div>
-              ))}
+          {/* Confirmation prompt */}
+          {current.confirmed ? (
+            <div style={{ textAlign:'center', padding:16, background:'#F0F8F0', borderRadius:2, marginBottom:8, border:'1px solid #C8E0C8' }}>
+              <div style={{ fontSize:20, marginBottom:4 }}>✅</div>
+              <div style={{ fontSize:13, fontWeight:600, color:'#3A6A3A' }}>出庫しました</div>
             </div>
+          ) : (
+            <>
+              <div style={{ fontSize:12, fontWeight:500, color:C.tx, marginBottom:6 }}>
+                このワインを出庫しますか？
+              </div>
+
+              {current.matches.length === 0 ? (
+                <div style={{ textAlign:'center', padding:16, color:C.sub, fontSize:12, background:'#FFF8F0', borderRadius:2, border:'1px solid #E8D8C0', marginBottom:8 }}>
+                  在庫マッチが見つかりません。手動検索で探してください。
+                </div>
+              ) : (
+                <div style={{ maxHeight:'30vh', overflowY:'auto', marginBottom:8 }}>
+                  {current.matches.map(item => (
+                    <div key={item.id} style={{
+                      padding:'8px 10px', marginBottom:3, background:C.card,
+                      border:`1px solid ${C.bd}`, borderRadius:2,
+                      display:'flex', justifyContent:'space-between', alignItems:'center',
+                    }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, fontWeight:600, fontFamily:EL, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                          {item.name}
+                        </div>
+                        {item.name_kana && item.name_kana !== item.name && (
+                          <div style={{ fontSize:10, color:'#B0AA9C', marginTop:1 }}>{item.name_kana}</div>
+                        )}
+                        <div style={{ fontSize:10, color:C.sub, marginTop:1 }}>
+                          {item.vintage || 'NV'} · {item.producer || ''} · 在庫:{item.quantity}
+                        </div>
+                      </div>
+                      <button onClick={() => confirmRemove(item)} disabled={item.quantity <= 0 || removing === item.id}
+                        style={{
+                          padding:'6px 12px', borderRadius:2, border:'none',
+                          background: item.quantity > 0 ? C.wine : C.bd, color:'#fff',
+                          fontSize:12, fontFamily:F, fontWeight:600, cursor: item.quantity > 0 ? 'pointer' : 'default',
+                          opacity: removing === item.id ? 0.5 : 1, flexShrink:0, marginLeft:6,
+                        }}>{removing === item.id ? '...' : '出庫'}</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Manual search fallback */}
+              <div style={{ padding:8, background:'#FAFAF8', borderRadius:2, border:`1px solid ${C.bd}`, marginBottom:8 }}>
+                <div style={{ fontSize:10, color:C.sub, marginBottom:4 }}>手動検索（見つからない場合）</div>
+                <div style={{ display:'flex', gap:6 }}>
+                  <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && doSearch()}
+                    placeholder="ワイン名で検索..."
+                    style={{ flex:1, padding:'6px 8px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:12, fontFamily:F }} />
+                  <button onClick={doSearch} disabled={searchLoading}
+                    style={{ padding:'6px 12px', borderRadius:2, border:'none', background:C.acc, color:'#fff', fontSize:12, fontFamily:F, cursor:'pointer' }}>
+                    {searchLoading ? '...' : '検索'}
+                  </button>
+                </div>
+                {searchResults.length > 0 && (
+                  <div style={{ maxHeight:'20vh', overflowY:'auto', marginTop:6 }}>
+                    {searchResults.map(item => (
+                      <div key={item.id} style={{
+                        padding:'6px 8px', marginBottom:2, background:C.card, border:`1px solid ${C.bd}`, borderRadius:2,
+                        display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer',
+                      }}>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:12, fontWeight:500, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                            {item.name}
+                          </div>
+                          {item.name_kana && item.name_kana !== item.name && (
+                            <div style={{ fontSize:9, color:'#B0AA9C' }}>{item.name_kana}</div>
+                          )}
+                          <div style={{ fontSize:9, color:C.sub }}>{item.vintage || 'NV'} · {item.producer || ''} · 在庫:{item.quantity}</div>
+                        </div>
+                        <button onClick={() => confirmRemove(item)} disabled={item.quantity <= 0}
+                          style={{
+                            padding:'4px 10px', borderRadius:2, border:'none',
+                            background: item.quantity > 0 ? C.wine : C.bd, color:'#fff',
+                            fontSize:11, fontFamily:F, fontWeight:600, flexShrink:0, marginLeft:4,
+                          }}>出庫</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
           )}
 
-          {error && <div style={{ color:C.red, fontSize:12, marginBottom:8 }}>{error}</div>}
+          {error && <div style={{ color:C.red, fontSize:11, marginBottom:6 }}>{error}</div>}
 
-          <div style={{ display:'flex', gap:10 }}>
-            <button onClick={() => { setStep('capture'); setIdentified(null); setMatches([]); setError(''); }}
-              style={{ flex:1, padding:12, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.tx }}>撮り直し</button>
+          <div style={{ display:'flex', gap:8 }}>
+            {!current.confirmed && (
+              <button onClick={skipCurrent} style={{ flex:1, padding:10, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:13, fontFamily:F, cursor:'pointer', color:C.sub }}>
+                スキップ
+              </button>
+            )}
+            {currentIdx < queue.length - 1 && current.confirmed && (
+              <button onClick={() => setCurrentIdx(currentIdx + 1)} style={{
+                flex:1, padding:10, borderRadius:2, border:'none', background:C.acc, color:'#fff', fontSize:13, fontFamily:F, fontWeight:600, cursor:'pointer',
+              }}>次へ →</button>
+            )}
+            {(currentIdx === queue.length - 1 && current.confirmed) && (
+              <button onClick={() => setStep('done')} style={{
+                flex:1, padding:10, borderRadius:2, border:'none', background:C.acc, color:'#fff', fontSize:13, fontFamily:F, fontWeight:600, cursor:'pointer',
+              }}>完了</button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {step === 'done' && (
+        <div style={{ textAlign:'center', padding:20 }}>
+          <div style={{ fontSize:40, marginBottom:12 }}>✅</div>
+          <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:8 }}>出庫完了</div>
+          <div style={{ fontSize:14, color:C.green, fontWeight:600, marginBottom:4 }}>
+            {queue.filter(q => q.confirmed).length}本 出庫しました
+          </div>
+          {queue.filter(q => q.selectedId === 'skipped').length > 0 && (
+            <div style={{ fontSize:12, color:C.sub }}>{queue.filter(q => q.selectedId === 'skipped').length}件 スキップ</div>
+          )}
+          <div style={{ display:'flex', gap:10, marginTop:16 }}>
+            <button onClick={() => { setStep('capture'); setQueue([]); setCurrentIdx(0); setError(''); setSearchQuery(''); setSearchResults([]); }}
+              style={{ flex:1, padding:12, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.tx }}>続けて出庫</button>
             <button onClick={onClose} style={{
               flex:1, padding:12, borderRadius:2, border:'none', background:C.acc,
               color:'#fff', fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer',
