@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { C, F, SR, EL, MCC, T, fmt, vintageLabel, CATEGORY_GROUPS } from '../lib/constants';
-import { parseInventoryExcel } from '../lib/excelParser';
+import { parseInventoryExcel, isMultiStoreFormat, getStoresFromResults } from '../lib/excelParser';
 
 // ===== Auth =====
 const useAuth = () => {
@@ -907,6 +907,8 @@ function ExcelImport({ stores, categories, onClose, onImported }) {
   const [checked, setChecked] = useState({});
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const [fileFormat, setFileFormat] = useState(null); // 'burgundy' | 'store'
+  const [importProgress, setImportProgress] = useState('');
   const fileRef = useRef(null);
 
   const handleFile = async (e) => {
@@ -918,57 +920,99 @@ function ExcelImport({ stores, categories, onClose, onImported }) {
       const XLSX = xlsxModule.default || xlsxModule;
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf);
+      const fmt = isMultiStoreFormat(wb, XLSX) ? 'store' : 'burgundy';
+      setFileFormat(fmt);
       const parsed = parseInventoryExcel(wb, XLSX);
       if (parsed.length === 0) { setError('データが見つかりません'); return; }
       setGroups(parsed);
-      // Default: all checked
       const c = {};
       parsed.forEach(g => { c[g.sheet] = true; });
       setChecked(c);
+      // For multi-store, auto-detect means no manual store selection needed
+      if (fmt === 'store') setStoreId('auto');
       setStep('preview');
     } catch (err) {
       setError('ファイル読取エラー: ' + err.message);
     }
   };
 
-  const totalItems = groups.filter(g => checked[g.sheet]).reduce((s, g) => s + g.items.length, 0);
+  const selectedItems = groups.filter(g => checked[g.sheet]).flatMap(g => g.items);
+  const totalItems = selectedItems.length;
+
+  // For multi-store: count by store
+  const storeBreakdown = {};
+  if (fileFormat === 'store') {
+    selectedItems.forEach(item => {
+      const sid = item._storeId || 'unknown';
+      storeBreakdown[sid] = (storeBreakdown[sid] || 0) + 1;
+    });
+  }
 
   const doImport = async () => {
-    if (!storeId) { setError('店舗を選択してください'); return; }
     setStep('importing');
-    const items = groups.filter(g => checked[g.sheet]).flatMap(g => g.items);
-    try {
-      const r = await fetch('/api/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items, store_id: storeId }),
+    setImportProgress('');
+
+    if (fileFormat === 'store' && storeId === 'auto') {
+      // Multi-store: import per store
+      const byStore = {};
+      selectedItems.forEach(item => {
+        const sid = item._storeId || 'unknown';
+        if (!byStore[sid]) byStore[sid] = [];
+        byStore[sid].push(item);
       });
-      const data = await r.json();
-      setResult(data);
+
+      let totalInserted = 0;
+      const allErrors = [];
+      const storeKeys = Object.keys(byStore);
+
+      for (let i = 0; i < storeKeys.length; i++) {
+        const sid = storeKeys[i];
+        const items = byStore[sid];
+        const storeName = stores.find(s => s.id === sid)?.name || sid;
+        setImportProgress(`${storeName} (${i + 1}/${storeKeys.length})...`);
+
+        try {
+          const r = await fetch('/api/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items, store_id: sid }),
+          });
+          const data = await r.json();
+          totalInserted += (data.inserted || 0);
+          if (data.errors?.length > 0) allErrors.push(...data.errors.map(e => ({ ...e, store: sid })));
+        } catch (err) {
+          allErrors.push({ store: sid, error: err.message });
+        }
+      }
+
+      setResult({ inserted: totalInserted, total: totalItems, errors: allErrors, storeCount: storeKeys.length });
       setStep('done');
-      if (data.inserted > 0) onImported();
-    } catch (err) {
-      setError('インポートエラー: ' + err.message);
-      setStep('preview');
+      if (totalInserted > 0) onImported();
+    } else {
+      // Single store (Burgundy or manually selected)
+      const targetStore = storeId === 'auto' ? 'burgundy' : storeId;
+      try {
+        const r = await fetch('/api/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: selectedItems, store_id: targetStore }),
+        });
+        const data = await r.json();
+        setResult(data);
+        setStep('done');
+        if (data.inserted > 0) onImported();
+      } catch (err) {
+        setError('インポートエラー: ' + err.message);
+        setStep('preview');
+      }
     }
   };
-
-  const catName = (id) => categories.find(c => c.id === id)?.name || '未分類';
 
   return (
     <BottomSheet open={true} onClose={onClose}>
       {step === 'select' && (
         <div>
           <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:16 }}>Excel取込</div>
-
-          {/* Store selection */}
-          <div style={{ marginBottom:14 }}>
-            <div style={{ fontSize:10, color:C.sub, marginBottom:4, textTransform:'uppercase', letterSpacing:0.5 }}>取込先</div>
-            <select value={storeId} onChange={e => setStoreId(e.target.value)}
-              style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F }}>
-              {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </div>
 
           {/* Stock or Wine List */}
           <div style={{ marginBottom:14 }}>
@@ -985,7 +1029,10 @@ function ExcelImport({ stores, categories, onClose, onImported }) {
             </div>
           </div>
 
-          <div style={{ fontSize:12, color:C.sub, marginBottom:14 }}>Excelファイル (.xlsx) を選択してください</div>
+          <div style={{ fontSize:12, color:C.sub, marginBottom:14 }}>
+            Excelファイル (.xlsx) を選択してください。
+            <br />バーガンディ在庫・5社在庫いずれも自動判別します。
+          </div>
           <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleFile} style={{ display:'none' }} />
           <button onClick={() => fileRef.current?.click()} style={{
             width:'100%', padding:16, borderRadius:2, border:`2px dashed ${C.bd}`, background:'transparent',
@@ -998,13 +1045,46 @@ function ExcelImport({ stores, categories, onClose, onImported }) {
       {step === 'preview' && (
         <div>
           <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:4 }}>インポートプレビュー</div>
-          <div style={{ fontSize:12, color:C.sub, marginBottom:4 }}>
-            {stores.find(s => s.id === storeId)?.name || storeId} · {importTarget === 'winelist' ? 'ワインリスト' : '在庫'} → {totalItems}件
+
+          {/* Format badge */}
+          <div style={{ display:'flex', gap:8, marginBottom:8 }}>
+            <span style={{ fontSize:11, padding:'2px 8px', borderRadius:2,
+              background: fileFormat === 'burgundy' ? '#F0E8D8' : '#E8F0E8',
+              color: fileFormat === 'burgundy' ? '#8A6A30' : '#3A6A3A',
+              fontWeight:600 }}>
+              {fileFormat === 'burgundy' ? 'バーガンディ在庫' : '5社在庫一覧'}
+            </span>
+            <span style={{ fontSize:11, padding:'2px 8px', borderRadius:2, background:'#F0F0F0', color:C.tx }}>
+              {importTarget === 'winelist' ? 'ワインリスト' : '在庫'} · {totalItems}件
+            </span>
           </div>
-          <div style={{ fontSize:11, color:C.sub, marginBottom:16 }}>取り込むシートを選択してください</div>
+
+          {/* For Burgundy: show store selector */}
+          {fileFormat === 'burgundy' && (
+            <div style={{ marginBottom:12 }}>
+              <div style={{ fontSize:10, color:C.sub, marginBottom:4, textTransform:'uppercase', letterSpacing:0.5 }}>取込先店舗</div>
+              <select value={storeId} onChange={e => setStoreId(e.target.value)}
+                style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F }}>
+                {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* For multi-store: show store breakdown */}
+          {fileFormat === 'store' && Object.keys(storeBreakdown).length > 0 && (
+            <div style={{ marginBottom:12, padding:10, background:'#F5F3EE', borderRadius:2, border:`1px solid ${C.bd}` }}>
+              <div style={{ fontSize:10, color:C.sub, marginBottom:6, textTransform:'uppercase', letterSpacing:0.5 }}>店舗別内訳（自動振り分け）</div>
+              {Object.entries(storeBreakdown).map(([sid, cnt]) => (
+                <div key={sid} style={{ fontSize:12, color:C.tx, display:'flex', justifyContent:'space-between', marginBottom:2 }}>
+                  <span>{stores.find(s => s.id === sid)?.name || sid}</span>
+                  <span style={{ color:C.sub }}>{cnt}件</span>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Sheet checkboxes */}
-          <div style={{ maxHeight:'40vh', overflowY:'auto', marginBottom:16 }}>
+          <div style={{ maxHeight:'35vh', overflowY:'auto', marginBottom:16 }}>
             {groups.map(g => (
               <div key={g.sheet} style={{
                 padding:'10px 12px', marginBottom:6, background: checked[g.sheet] ? '#F5F3EE' : C.card,
@@ -1037,7 +1117,7 @@ function ExcelImport({ stores, categories, onClose, onImported }) {
           {error && <div style={{ color:C.red, fontSize:12, marginBottom:12 }}>{error}</div>}
 
           <div style={{ display:'flex', gap:10 }}>
-            <button onClick={() => setStep('select')} style={{ flex:1, padding:12, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.tx }}>戻る</button>
+            <button onClick={() => { setStep('select'); setGroups([]); setFileFormat(null); }} style={{ flex:1, padding:12, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.tx }}>戻る</button>
             <button onClick={() => setStep('confirm')} disabled={totalItems === 0} style={{
               flex:1, padding:12, borderRadius:2, border:'none', background: totalItems > 0 ? C.acc : C.bd,
               color:'#fff', fontSize:14, fontFamily:F, fontWeight:600, cursor:'pointer',
@@ -1051,9 +1131,24 @@ function ExcelImport({ stores, categories, onClose, onImported }) {
           <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:8 }}>上書きしますか？</div>
           <div style={{ padding:16, background:'#FFF8F0', border:`1px solid #E8D8C0`, borderRadius:2, marginBottom:16 }}>
             <div style={{ fontSize:13, color:C.tx, lineHeight:1.8 }}>
-              <div><strong>取込先:</strong> {stores.find(s => s.id === storeId)?.name || storeId}</div>
-              <div><strong>種別:</strong> {importTarget === 'winelist' ? 'ワインリスト' : '在庫'}</div>
-              <div><strong>件数:</strong> {totalItems}件</div>
+              {fileFormat === 'store' ? (
+                <>
+                  <div><strong>形式:</strong> 5社在庫一覧（自動振り分け）</div>
+                  <div><strong>種別:</strong> {importTarget === 'winelist' ? 'ワインリスト' : '在庫'}</div>
+                  <div><strong>件数:</strong> {totalItems}件 → {Object.keys(storeBreakdown).length}店舗</div>
+                  {Object.entries(storeBreakdown).map(([sid, cnt]) => (
+                    <div key={sid} style={{ fontSize:12, marginLeft:16 }}>
+                      {stores.find(s => s.id === sid)?.name || sid}: {cnt}件
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <>
+                  <div><strong>取込先:</strong> {stores.find(s => s.id === storeId)?.name || storeId}</div>
+                  <div><strong>種別:</strong> {importTarget === 'winelist' ? 'ワインリスト' : '在庫'}</div>
+                  <div><strong>件数:</strong> {totalItems}件</div>
+                </>
+              )}
             </div>
             <div style={{ fontSize:12, color:'#8A6A30', marginTop:10, lineHeight:1.6 }}>
               既存データに同名・同ヴィンテージのアイテムがある場合、数量と価格が上書きされます。新規アイテムは追加されます。
@@ -1074,6 +1169,7 @@ function ExcelImport({ stores, categories, onClose, onImported }) {
         <div style={{ textAlign:'center', padding:40 }}>
           <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:8 }}>取込中...</div>
           <div style={{ fontSize:13, color:C.sub }}>{totalItems}件をインポートしています</div>
+          {importProgress && <div style={{ fontSize:12, color:C.acc, marginTop:8 }}>{importProgress}</div>}
         </div>
       )}
 
@@ -1081,7 +1177,10 @@ function ExcelImport({ stores, categories, onClose, onImported }) {
         <div style={{ textAlign:'center', padding:20 }}>
           <div style={{ fontSize:40, marginBottom:12 }}>✅</div>
           <div style={{ fontSize:16, fontWeight:500, fontFamily:SR, color:C.tx, marginBottom:8 }}>取込完了</div>
-          <div style={{ fontSize:14, color:C.green, fontWeight:600, marginBottom:4 }}>{result.inserted}件 追加しました</div>
+          <div style={{ fontSize:14, color:C.green, fontWeight:600, marginBottom:4 }}>
+            {result.inserted}件 追加しました
+            {result.storeCount && ` (${result.storeCount}店舗)`}
+          </div>
           {result.errors?.length > 0 && (
             <div style={{ fontSize:12, color:C.red, marginTop:8 }}>エラー: {result.errors.length}件</div>
           )}
