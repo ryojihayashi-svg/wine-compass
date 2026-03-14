@@ -2964,6 +2964,16 @@ function ItemListPage({ title, storeId, categoryId, categoriesParam, stores, cat
   const debRef = useRef(null);
   const PAGE_SIZE = 50;
 
+  // Wine list selection states
+  const [onListIds, setOnListIds] = useState(new Set());
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [wlStep, setWlStep] = useState(null); // null | 'price' | 'confirm'
+  const [prices, setPrices] = useState({});
+  const [targetStore, setTargetStore] = useState(storeId);
+  const [saving, setSaving] = useState(false);
+  const [wlToast, setWlToast] = useState('');
+
   const SORT_OPTIONS = [
     { val: 'category', label: 'カテゴリ順' },
     { val: 'name', label: '名前順' },
@@ -2971,6 +2981,8 @@ function ItemListPage({ title, storeId, categoryId, categoriesParam, stores, cat
     { val: 'price_asc', label: '安い順' },
     { val: 'producer', label: '生産者+価格順' },
   ];
+
+  const restaurantStores = stores.filter(s => s.id !== 'burgundy');
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -2993,28 +3005,236 @@ function ItemListPage({ title, storeId, categoryId, categoriesParam, stores, cat
 
   useEffect(() => { fetchItems(); }, [fetchItems]);
 
+  // Fetch on-list IDs
+  const fetchOnListIds = useCallback(async () => {
+    const sid = targetStore || storeId;
+    if (!sid) return;
+    try {
+      const r = await fetch(`/api/wine-list?store=${sid}`);
+      const d = await r.json();
+      setOnListIds(new Set((d.items || []).map(wl => wl.beverage_id)));
+    } catch(e) {}
+  }, [targetStore, storeId]);
+
+  useEffect(() => { fetchOnListIds(); }, [fetchOnListIds]);
+
   const onSearch = (val) => {
     if (debRef.current) clearTimeout(debRef.current);
     debRef.current = setTimeout(() => { setQ(val); setPage(1); }, 300);
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  // AI recommended price calculation
+  const calcPrice = (item) => {
+    const cost = item.cost_price || 0;
+    if (!cost) return '';
+    let rate;
+    if (cost >= 20000) rate = 1.8;
+    else if (cost >= 10000) rate = 2.0;
+    else if (cost >= 5000) rate = 2.5;
+    else if (cost >= 2000) rate = 3.0;
+    else rate = 3.5;
+    return Math.ceil(cost * rate / 500) * 500;
+  };
+
+  // Enter price step
+  const goToPriceStep = () => {
+    const defaultPrices = {};
+    items.filter(i => selectedIds.has(i.id)).forEach(item => {
+      defaultPrices[item.id] = calcPrice(item);
+    });
+    setPrices(defaultPrices);
+    setWlStep('price');
+  };
+
+  // Save to wine list
+  const saveToWineList = async () => {
+    setSaving(true);
+    const sid = targetStore || storeId;
+    const entries = [...selectedIds].map(bevId => ({
+      store_id: sid,
+      beverage_id: bevId,
+      sell_price: prices[bevId] ? Number(prices[bevId]) : null,
+    }));
+    try {
+      const r = await fetch('/api/wine-list', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: entries }),
+      });
+      if (r.ok) {
+        setWlToast(`${entries.length}件をワインリストに追加しました`);
+        setSelectMode(false);
+        setSelectedIds(new Set());
+        setWlStep(null);
+        await fetchOnListIds();
+      }
+    } catch(e) { setWlToast('エラーが発生しました'); }
+    setSaving(false);
+  };
+
+  const cancelWlMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setWlStep(null);
   };
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
   const storeColor = {};
   stores.forEach(s => { storeColor[s.id] = s.color || '#4A6352'; });
 
+  const selectedItems = items.filter(i => selectedIds.has(i.id));
+
+  // ===== Price Setting Step =====
+  if (wlStep === 'price') {
+    return (
+      <div style={{ minHeight:'100vh', background:C.bg }}>
+        <div style={{ padding:'12px 16px', display:'flex', alignItems:'center', gap:10, borderBottom:`1px solid ${C.bd}` }}>
+          <button onClick={() => setWlStep(null)} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}><IcoBack /></button>
+          <div style={{ flex:1, fontSize:15, fontWeight:500, fontFamily:SR, color:C.tx }}>売価を設定 ({selectedIds.size}件)</div>
+        </div>
+        {/* Target store selector */}
+        <div style={{ padding:'12px 16px', borderBottom:`1px solid ${C.bd}`, display:'flex', alignItems:'center', gap:8 }}>
+          <span style={{ fontSize:11, color:C.sub, fontFamily:F }}>リスト先:</span>
+          <select value={targetStore} onChange={e => setTargetStore(e.target.value)}
+            style={{ flex:1, padding:'6px 10px', border:`1px solid ${C.bd}`, borderRadius:4, fontSize:13, fontFamily:F, background:C.card }}>
+            {restaurantStores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+        <div style={{ padding:'12px 16px 120px' }}>
+          {selectedItems.map(item => {
+            const cost = item.cost_price || 0;
+            const rec = calcPrice(item);
+            return (
+              <div key={item.id} style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:2, padding:'12px 14px', marginBottom:6 }}>
+                <div style={{ fontSize:13, fontWeight:600, fontFamily:EL, color:C.tx, marginBottom:2 }}>
+                  {item.name}{item.vintage && <span style={{ fontWeight:400, fontSize:11, color:'#8A8478', marginLeft:3 }}>{item.vintage}</span>}
+                </div>
+                {item.producer && <div style={{ fontSize:10, color:'#A09A8C', fontFamily:F, marginBottom:6 }}>{item.producer}</div>}
+                <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+                  {cost > 0 && <span style={{ fontSize:11, color:C.sub, fontFamily:F }}>仕入: {fmt(cost)}</span>}
+                  {rec && <span style={{ fontSize:11, color:'#6B8C5E', fontFamily:F, fontWeight:600 }}>AI推奨: {fmt(rec)}</span>}
+                  <div style={{ flex:1, minWidth:100 }}>
+                    <input type="number" value={prices[item.id] || ''} onChange={e => setPrices(prev => ({ ...prev, [item.id]: e.target.value }))}
+                      placeholder={rec ? String(rec) : '売価'}
+                      style={{ width:'100%', padding:'6px 10px', border:`1px solid ${C.bd}`, borderRadius:4, fontSize:14, fontFamily:F, boxSizing:'border-box', textAlign:'right' }} />
+                  </div>
+                </div>
+                {cost > 0 && (
+                  <div style={{ display:'flex', gap:6, marginTop:6 }}>
+                    {[1.5, 2.0, 2.5, 3.0].map(r => (
+                      <button key={r} onClick={() => setPrices(prev => ({ ...prev, [item.id]: Math.ceil(cost * r / 500) * 500 }))}
+                        style={{ padding:'3px 8px', borderRadius:10, border:`1px solid ${C.bd}`, background:'transparent',
+                          fontSize:9, color:C.sub, cursor:'pointer', fontFamily:F }}>×{r}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {/* Bottom bar */}
+        <div style={{
+          position:'fixed', bottom:56, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:430,
+          background:'rgba(253,252,250,0.97)', borderTop:`1px solid ${C.bd}`, padding:'12px 16px', boxSizing:'border-box',
+          display:'flex', gap:10, zIndex:90,
+        }}>
+          <button onClick={() => setWlStep(null)} style={{
+            flex:1, padding:'12px', borderRadius:2, border:`1px solid ${C.bd}`, background:C.card,
+            fontSize:13, fontFamily:F, cursor:'pointer', color:C.tx,
+          }}>戻る</button>
+          <button onClick={() => setWlStep('confirm')} style={{
+            flex:2, padding:'12px', borderRadius:2, border:'none', background:C.acc,
+            color:'#fff', fontSize:13, fontFamily:F, fontWeight:600, cursor:'pointer',
+          }}>オンリストしますか？</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ===== Confirm/Preview Step =====
+  if (wlStep === 'confirm') {
+    const storeName = stores.find(s => s.id === targetStore)?.name || targetStore;
+    return (
+      <div style={{ minHeight:'100vh', background:C.bg }}>
+        <div style={{ padding:'12px 16px', display:'flex', alignItems:'center', gap:10, borderBottom:`1px solid ${C.bd}` }}>
+          <button onClick={() => setWlStep('price')} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}><IcoBack /></button>
+          <div style={{ flex:1, fontSize:15, fontWeight:500, fontFamily:SR, color:C.tx }}>プレビュー</div>
+        </div>
+        <div style={{ padding:'12px 16px', borderBottom:`1px solid ${C.bd}`, background:'#F5F3EE' }}>
+          <div style={{ fontSize:12, color:C.sub, fontFamily:F }}>
+            <span style={{ fontWeight:600, color:C.tx }}>{storeName}</span> のワインリストに <span style={{ fontWeight:700, color:C.acc }}>{selectedIds.size}件</span> 追加
+          </div>
+        </div>
+        <div style={{ padding:'12px 16px 120px' }}>
+          {selectedItems.map((item, idx) => (
+            <div key={item.id} style={{
+              display:'flex', justifyContent:'space-between', alignItems:'center',
+              padding:'10px 0', borderBottom: idx < selectedItems.length - 1 ? `1px solid ${C.bd}` : 'none',
+            }}>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:600, fontFamily:EL, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                  {item.name}{item.vintage && <span style={{ fontWeight:400, fontSize:11, color:'#8A8478', marginLeft:3 }}>{item.vintage}</span>}
+                </div>
+                {item.producer && <div style={{ fontSize:10, color:'#A09A8C', fontFamily:F }}>{item.producer}</div>}
+              </div>
+              <div style={{ textAlign:'right', flexShrink:0, marginLeft:10 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:C.acc, fontFamily:F }}>
+                  {prices[item.id] ? fmt(Number(prices[item.id])) : '-'}
+                </div>
+                {item.cost_price > 0 && (
+                  <div style={{ fontSize:9, color:C.sub, fontFamily:F }}>仕入: {fmt(item.cost_price)}</div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{
+          position:'fixed', bottom:56, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:430,
+          background:'rgba(253,252,250,0.97)', borderTop:`1px solid ${C.bd}`, padding:'12px 16px', boxSizing:'border-box',
+          display:'flex', gap:10, zIndex:90,
+        }}>
+          <button onClick={() => setWlStep('price')} style={{
+            flex:1, padding:'12px', borderRadius:2, border:`1px solid ${C.bd}`, background:C.card,
+            fontSize:13, fontFamily:F, cursor:'pointer', color:C.tx,
+          }}>戻る</button>
+          <button onClick={saveToWineList} disabled={saving} style={{
+            flex:2, padding:'12px', borderRadius:2, border:'none', background:'#4A6352',
+            color:'#fff', fontSize:13, fontFamily:F, fontWeight:600, cursor:'pointer',
+            opacity: saving ? 0.6 : 1,
+          }}>{saving ? '保存中...' : '確認してリストに追加'}</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ===== Normal / Selection Mode =====
   return (
     <div style={{ minHeight:'100vh', background:C.bg }}>
       <div style={{ padding:'12px 16px', display:'flex', alignItems:'center', gap:10, borderBottom:`1px solid ${C.bd}` }}>
-        <button onClick={onBack} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}><IcoBack /></button>
-        <div style={{ flex:1, fontSize:15, fontWeight:500, fontFamily:SR, color:C.tx }}>{title || '在庫一覧'}</div>
-        <span style={{ fontSize:12, color:C.sub }}>{total}件</span>
+        <button onClick={selectMode ? cancelWlMode : onBack} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}><IcoBack /></button>
+        <div style={{ flex:1, fontSize:15, fontWeight:500, fontFamily:SR, color:C.tx }}>
+          {selectMode ? 'ワインリストに追加' : (title || '在庫一覧')}
+        </div>
+        {selectMode ? (
+          <span style={{ fontSize:12, color:C.acc, fontWeight:600 }}>{selectedIds.size}件選択</span>
+        ) : (
+          <span style={{ fontSize:12, color:C.sub }}>{total}件</span>
+        )}
       </div>
       <div style={{ padding:'10px 16px 0' }}>
         <input onChange={e => onSearch(e.target.value)} placeholder="検索..."
           style={{ width:'100%', padding:'10px 14px', border:`1px solid ${C.bd}`, borderRadius:10, fontSize:14, fontFamily:F, background:C.card, boxSizing:'border-box', outline:'none' }} />
       </div>
-      {/* Sort options */}
-      <div style={{ padding:'8px 16px', display:'flex', gap:4, overflowX:'auto' }}>
+      {/* Sort options + Wine list button */}
+      <div style={{ padding:'8px 16px', display:'flex', gap:4, overflowX:'auto', alignItems:'center' }}>
         {SORT_OPTIONS.map(opt => (
           <button key={opt.val} onClick={() => { setSort(opt.val); setPage(1); }}
             style={{
@@ -3024,34 +3244,74 @@ function ItemListPage({ title, storeId, categoryId, categoriesParam, stores, cat
               fontSize:10, fontFamily:F, cursor:'pointer', whiteSpace:'nowrap', fontWeight: sort === opt.val ? 600 : 400,
             }}>{opt.label}</button>
         ))}
+        <div style={{ flex:1 }} />
+        {!selectMode && (
+          <button onClick={() => setSelectMode(true)} style={{
+            padding:'4px 10px', borderRadius:10, border:`1px solid #6B8C5E`,
+            background:'#EBF2EB', color:'#4A6352', fontSize:10, fontFamily:F, cursor:'pointer',
+            whiteSpace:'nowrap', fontWeight:600, display:'flex', alignItems:'center', gap:3,
+          }}>📋 リスト追加</button>
+        )}
       </div>
-      <div style={{ padding:'0 16px 100px' }}>
+      <div style={{ padding:'0 16px 120px' }}>
         {loading ? (
           <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>読み込み中...</div>
         ) : items.length === 0 ? (
           <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>該当なし</div>
-        ) : items.map(item => (
-          <div key={item.id} onClick={() => onSelect(item)} style={{
-            background:C.card, borderRadius:1, padding:'12px 14px 12px 20px', border:`1px solid ${C.bd}`,
-            marginBottom:5, cursor:'pointer', position:'relative',
-          }}>
-            <div style={{ position:'absolute', left:0, top:0, bottom:0, width:3, background: storeColor[item.store_id] || C.acc, opacity:0.5 }} />
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', paddingLeft:4 }}>
-              <div style={{ flex:1, minWidth:0 }}>
-                {item.producer && <div style={{ fontSize:9, color:'#A09A8C', fontFamily:F, letterSpacing:0.3, marginBottom:1 }}>{item.producer}</div>}
-                {(item.region || item.wc_categories?.name) && <div style={{ fontSize:9, color:'#B0AA9C', fontFamily:F, marginTop:1 }}>{item.region || item.wc_categories?.name || ''}</div>}
-                <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, lineHeight:1.35 }}>{item.name}{item.vintage && <span style={{ fontWeight:400, fontSize:12, color:'#8A8478', marginLeft:3, fontFamily:F }}>{item.vintage}</span>}</div>
-                {item.name_kana && item.name_kana !== item.name && <div style={{ fontSize:10, color:'#B0AA9C', fontFamily:"'Noto Sans JP',sans-serif", marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name_kana}</div>}
-                {item.notes && <div style={{ fontSize:10, color:'#B0AA9C', fontFamily:F, marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.notes}</div>}
-              </div>
-              <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:3, flexShrink:0, marginLeft:10 }}>
-                <QBadge q={item.quantity} />
-                {item.cost_price != null && <span style={{ fontSize:10, color:'#B0AA9C', fontFamily:F }}>仕入: {fmt(item.cost_price)}</span>}
-                {item.price != null && <span style={{ fontSize:10, color:C.acc, fontFamily:F }}>売値: {fmt(item.price)}</span>}
+        ) : items.map(item => {
+          const isOnList = onListIds.has(item.id);
+          const isSelected = selectedIds.has(item.id);
+          return (
+            <div key={item.id} onClick={() => {
+              if (selectMode) {
+                if (!isOnList) toggleSelect(item.id);
+              } else {
+                onSelect(item);
+              }
+            }} style={{
+              background: isSelected ? '#F0EDE5' : C.card, borderRadius:1,
+              padding:'12px 14px 12px 20px',
+              border: isSelected ? `1px solid ${C.acc}` : `1px solid ${C.bd}`,
+              marginBottom:5, cursor:'pointer', position:'relative',
+              opacity: selectMode && isOnList ? 0.5 : 1,
+            }}>
+              <div style={{ position:'absolute', left:0, top:0, bottom:0, width:3, background: storeColor[item.store_id] || C.acc, opacity:0.5 }} />
+              <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
+                {/* Selection / On-list indicator */}
+                {selectMode ? (
+                  <div style={{
+                    width:22, height:22, borderRadius:'50%', flexShrink:0, marginTop:2,
+                    border: isOnList ? '2px solid #6B8C5E' : isSelected ? `2px solid ${C.acc}` : '2px dashed #C0B8A8',
+                    background: isOnList ? '#6B8C5E' : isSelected ? C.acc : 'transparent',
+                    display:'flex', alignItems:'center', justifyContent:'center',
+                  }}>
+                    {(isOnList || isSelected) && (
+                      <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M20 6L9 17l-5-5" />
+                      </svg>
+                    )}
+                  </div>
+                ) : isOnList ? (
+                  <div style={{
+                    width:8, height:8, borderRadius:'50%', background:'#6B8C5E', flexShrink:0, marginTop:8,
+                  }} title="オンリスト" />
+                ) : null}
+                <div style={{ flex:1, minWidth:0 }}>
+                  {item.producer && <div style={{ fontSize:9, color:'#A09A8C', fontFamily:F, letterSpacing:0.3, marginBottom:1 }}>{item.producer}</div>}
+                  {(item.region || item.wc_categories?.name) && <div style={{ fontSize:9, color:'#B0AA9C', fontFamily:F, marginTop:1 }}>{item.region || item.wc_categories?.name || ''}</div>}
+                  <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, lineHeight:1.35 }}>{item.name}{item.vintage && <span style={{ fontWeight:400, fontSize:12, color:'#8A8478', marginLeft:3, fontFamily:F }}>{item.vintage}</span>}</div>
+                  {item.name_kana && item.name_kana !== item.name && <div style={{ fontSize:10, color:'#B0AA9C', fontFamily:"'Noto Sans JP',sans-serif", marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name_kana}</div>}
+                  {item.notes && <div style={{ fontSize:10, color:'#B0AA9C', fontFamily:F, marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.notes}</div>}
+                </div>
+                <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:3, flexShrink:0, marginLeft:10 }}>
+                  <QBadge q={item.quantity} />
+                  {item.cost_price != null && <span style={{ fontSize:10, color:'#B0AA9C', fontFamily:F }}>仕入: {fmt(item.cost_price)}</span>}
+                  {item.price != null && <span style={{ fontSize:10, color:C.acc, fontFamily:F }}>売値: {fmt(item.price)}</span>}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {totalPages > 1 && (
           <div style={{ display:'flex', justifyContent:'center', alignItems:'center', gap:16, padding:'16px 0' }}>
             <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
@@ -3062,11 +3322,33 @@ function ItemListPage({ title, storeId, categoryId, categoriesParam, stores, cat
           </div>
         )}
       </div>
-      <button onClick={onAdd} style={{
-        position:'fixed', bottom:80, right:'calc(50% - 195px)', width:48, height:48, borderRadius:'50%',
-        background:C.acc, color:'#fff', border:'none', fontSize:24, cursor:'pointer',
-        boxShadow:'0 4px 12px rgba(0,0,0,0.15)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:50,
-      }}>+</button>
+      {/* Bottom action bars */}
+      {selectMode ? (
+        <div style={{
+          position:'fixed', bottom:56, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:430,
+          background:'rgba(253,252,250,0.97)', borderTop:`1px solid ${C.bd}`, padding:'10px 16px', boxSizing:'border-box',
+          display:'flex', gap:10, alignItems:'center', zIndex:90,
+        }}>
+          <button onClick={cancelWlMode} style={{
+            padding:'10px 16px', borderRadius:2, border:`1px solid ${C.bd}`, background:C.card,
+            fontSize:12, fontFamily:F, cursor:'pointer', color:C.tx,
+          }}>キャンセル</button>
+          <div style={{ flex:1, textAlign:'center', fontSize:11, color:C.sub, fontFamily:F }}>
+            {selectedIds.size > 0 ? `${selectedIds.size}件選択中` : 'アイテムを選択'}
+          </div>
+          <button onClick={goToPriceStep} disabled={selectedIds.size === 0} style={{
+            padding:'10px 20px', borderRadius:2, border:'none', background: selectedIds.size > 0 ? C.acc : '#D0C8B8',
+            color:'#fff', fontSize:13, fontFamily:F, fontWeight:600, cursor: selectedIds.size > 0 ? 'pointer' : 'default',
+          }}>決定</button>
+        </div>
+      ) : (
+        <button onClick={onAdd} style={{
+          position:'fixed', bottom:72, right:'calc(50% - 195px)', width:48, height:48, borderRadius:'50%',
+          background:C.acc, color:'#fff', border:'none', fontSize:24, cursor:'pointer',
+          boxShadow:'0 4px 12px rgba(0,0,0,0.15)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:50,
+        }}>+</button>
+      )}
+      {wlToast && <Toast msg={wlToast} onClose={() => setWlToast('')} />}
     </div>
   );
 }
@@ -3547,7 +3829,7 @@ export default function App() {
   const [stores, setStores] = useState([]);
   const [categories, setCategories] = useState([]);
   const [tab, setTab] = useState('home');
-  const [subView, setSubView] = useState(null);
+  const [subViewStack, setSubViewStack] = useState([]);
   const [selected, setSelected] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -3566,19 +3848,25 @@ export default function App() {
     fetch('/api/categories').then(r => r.json()).then(d => Array.isArray(d) ? setCategories(d) : setCategories([])).catch(() => {});
   }, [ok]);
 
+  const subView = subViewStack.length > 0 ? subViewStack[subViewStack.length - 1] : null;
   const navigate = (type, params = {}) => {
     if (type === 'add') { setShowAdd(true); return; }
-    setSubView({ type, params });
+    setSubViewStack(prev => [...prev, { type, params }]);
   };
-  const goBack = () => { setSubView(null); setHomeKey(k => k + 1); };
+  const goBack = () => {
+    setSubViewStack(prev => {
+      if (prev.length <= 1) { setHomeKey(k => k + 1); return []; }
+      return prev.slice(0, -1);
+    });
+  };
   const openWineList = (storeId, categoryId) => {
-    setSubView({ type: 'wine-list', params: { store: storeId, category: categoryId } });
+    setSubViewStack([{ type: 'wine-list', params: { store: storeId, category: categoryId } }]);
   };
   const openWineListPrint = (storeId) => {
-    setSubView({ type: 'wine-list-print', params: storeId ? { store: storeId } : {} });
+    setSubViewStack([{ type: 'wine-list-print', params: storeId ? { store: storeId } : {} }]);
   };
   const openAIDiagnosis = (storeId, mode = 'stock') => {
-    setSubView({ type: 'ai-diagnosis', params: { store: storeId, mode } });
+    setSubViewStack([{ type: 'ai-diagnosis', params: { store: storeId, mode } }]);
   };
 
   const saveItem = async (id, updates) => {
@@ -3705,15 +3993,30 @@ export default function App() {
             <span style={{ color:C.sub, fontSize:10 }}>準備中</span>
           </button>
 
-          {/* Per-store Wine List Settings */}
-          <button style={{
-            width:'100%', padding:14, borderRadius:2, border:`1px solid ${C.bd}`,
-            background:C.card, fontSize:13, fontFamily:F, cursor:'default', color:C.tx,
-            display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8, opacity:0.6,
-          }}>
-            <span style={{ display:'flex', alignItems:'center', gap:8 }}>📋 店舗別ワインリスト設定</span>
-            <span style={{ color:C.sub, fontSize:10 }}>準備中</span>
-          </button>
+          {/* Per-store Wine List Sort Settings */}
+          <div style={{ marginBottom:8, border:`1px solid ${C.bd}`, borderRadius:2, overflow:'hidden' }}>
+            <div style={{
+              padding:14, background:C.card, fontSize:13, fontFamily:F, color:C.tx,
+              display:'flex', alignItems:'center', gap:8, borderBottom:`1px solid ${C.bd}`,
+            }}>📋 ワインリスト掲載順ロジック</div>
+            {stores.filter(s => s.id !== 'burgundy').map(s => {
+              const key = `wl_sort_${s.id}`;
+              const saved = typeof window !== 'undefined' ? localStorage.getItem(key) || 'category' : 'category';
+              return (
+                <div key={s.id} style={{ padding:'8px 14px', display:'flex', alignItems:'center', justifyContent:'space-between', borderBottom:`1px solid ${C.bd}`, background:C.bg }}>
+                  <span style={{ fontSize:12, color:C.tx, fontFamily:F }}>{s.name}</span>
+                  <select defaultValue={saved} onChange={e => { localStorage.setItem(key, e.target.value); }}
+                    style={{ padding:'4px 8px', border:`1px solid ${C.bd}`, borderRadius:4, fontSize:11, fontFamily:F, background:C.card }}>
+                    <option value="category">カテゴリ → 価格順</option>
+                    <option value="price_desc">価格 高い順</option>
+                    <option value="price_asc">価格 安い順</option>
+                    <option value="producer">生産者 → 価格順</option>
+                    <option value="custom">カスタム順</option>
+                  </select>
+                </div>
+              );
+            })}
+          </div>
 
           <div style={{ height:16 }} />
           <button onClick={logout} style={{ width:'100%', padding:14, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, fontSize:14, fontFamily:F, cursor:'pointer', color:C.red }}>ログアウト</button>
@@ -3726,7 +4029,7 @@ export default function App() {
   return (
     <div style={{ maxWidth:430, margin:'0 auto', minHeight:'100vh', background:C.bg, fontFamily:F, position:'relative' }}>
       {renderView()}
-      {!subView && <BottomNav tab={tab} onTab={(t) => { setTab(t); setSubView(null); }} />}
+      <BottomNav tab={tab} onTab={(t) => { setTab(t); setSubViewStack([]); }} />
       {selected && <DetailModal item={selected} stores={stores} categories={categories} onClose={() => setSelected(null)} onSave={saveItem} onDelete={deleteItem} />}
       {showAdd && <AddItemForm stores={stores} categories={categories} onClose={() => setShowAdd(false)} onAdd={addItem} />}
       {showImport && <ExcelImport stores={stores} categories={categories} onClose={() => setShowImport(false)} onImported={() => setToast('インポート完了')} />}
