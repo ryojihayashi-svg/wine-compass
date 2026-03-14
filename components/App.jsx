@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { C, F, SR, EL, MCC, T, fmt, vintageLabel, CATEGORY_GROUPS } from '../lib/constants';
-import { parseInventoryExcel, isMultiStoreFormat, getStoresFromResults } from '../lib/excelParser';
+import { parseInventoryExcel, isMultiStoreFormat, getStoresFromResults, parseWineListExcel } from '../lib/excelParser';
 
 // ===== Auth =====
 const useAuth = () => {
@@ -920,26 +920,45 @@ function ExcelImport({ stores, categories, onClose, onImported }) {
       const XLSX = xlsxModule.default || xlsxModule;
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf);
-      const fmt = isMultiStoreFormat(wb, XLSX) ? 'store' : 'burgundy';
-      setFileFormat(fmt);
-      const parsed = parseInventoryExcel(wb, XLSX);
-      if (parsed.length === 0) {
-        setError(`データが見つかりません（シート: ${wb.SheetNames.join(', ')}、形式: ${fmt}）`);
-        return;
+
+      if (importTarget === 'winelist') {
+        // Wine list import
+        const parsed = parseWineListExcel(wb, XLSX);
+        if (parsed.length === 0) {
+          setError(`ワインリストデータが見つかりません（シート: ${wb.SheetNames.join(', ')}）`);
+          return;
+        }
+        setFileFormat('winelist');
+        setGroups(parsed);
+        const c = {};
+        parsed.forEach(g => { c[g.section || g.sheet] = true; });
+        setChecked(c);
+        setStep('preview');
+      } else {
+        // Inventory import
+        const fmt = isMultiStoreFormat(wb, XLSX) ? 'store' : 'burgundy';
+        setFileFormat(fmt);
+        const parsed = parseInventoryExcel(wb, XLSX);
+        if (parsed.length === 0) {
+          setError(`データが見つかりません（シート: ${wb.SheetNames.join(', ')}、形式: ${fmt}）`);
+          return;
+        }
+        setGroups(parsed);
+        const c = {};
+        parsed.forEach(g => { c[g.sheet] = true; });
+        setChecked(c);
+        if (fmt === 'store') setStoreId('auto');
+        setStep('preview');
       }
-      setGroups(parsed);
-      const c = {};
-      parsed.forEach(g => { c[g.sheet] = true; });
-      setChecked(c);
-      // For multi-store, auto-detect means no manual store selection needed
-      if (fmt === 'store') setStoreId('auto');
-      setStep('preview');
     } catch (err) {
       setError('ファイル読取エラー: ' + err.message);
     }
   };
 
-  const selectedItems = groups.filter(g => checked[g.sheet]).flatMap(g => g.items);
+  const selectedGroups = fileFormat === 'winelist'
+    ? groups.filter(g => checked[g.section || g.sheet])
+    : groups.filter(g => checked[g.sheet]);
+  const selectedItems = selectedGroups.flatMap(g => g.items);
   const totalItems = selectedItems.length;
 
   // For multi-store: count by store
@@ -954,6 +973,51 @@ function ExcelImport({ stores, categories, onClose, onImported }) {
   const doImport = async () => {
     setStep('importing');
     setImportProgress('');
+
+    // Wine list import
+    if (fileFormat === 'winelist') {
+      const targetStore = storeId;
+      if (!targetStore || targetStore === 'auto') {
+        setError('店舗を選択してください');
+        setStep('preview');
+        return;
+      }
+      setImportProgress('既存リストを削除中...');
+      try {
+        // Delete existing wine list items for this store
+        await fetch(`/api/wine-list-items?store=${targetStore}`, { method: 'DELETE' });
+      } catch(e) {}
+
+      // Build items with section info
+      const allItems = [];
+      for (const grp of selectedGroups) {
+        for (const item of grp.items) {
+          allItems.push({
+            ...item,
+            section: grp.section,
+            section_en: grp.section_en,
+            section_order: grp.section_order,
+          });
+        }
+      }
+
+      setImportProgress(`${allItems.length}件を登録中...`);
+      try {
+        const r = await fetch('/api/wine-list-items', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ store_id: targetStore, items: allItems }),
+        });
+        const data = await r.json();
+        setResult({ inserted: data.inserted || 0, total: allItems.length, errors: data.errors });
+        setStep('done');
+        if (data.inserted > 0) onImported();
+      } catch(err) {
+        setError('ワインリスト取込エラー: ' + err.message);
+        setStep('preview');
+      }
+      return;
+    }
 
     if (fileFormat === 'store' && storeId === 'auto') {
       // Multi-store: import per store
@@ -1052,23 +1116,25 @@ function ExcelImport({ stores, categories, onClose, onImported }) {
           {/* Format badge */}
           <div style={{ display:'flex', gap:8, marginBottom:8 }}>
             <span style={{ fontSize:11, padding:'2px 8px', borderRadius:2,
-              background: fileFormat === 'burgundy' ? '#F0E8D8' : '#E8F0E8',
-              color: fileFormat === 'burgundy' ? '#8A6A30' : '#3A6A3A',
+              background: fileFormat === 'winelist' ? '#E8E0F0' : fileFormat === 'burgundy' ? '#F0E8D8' : '#E8F0E8',
+              color: fileFormat === 'winelist' ? '#6A4A8A' : fileFormat === 'burgundy' ? '#8A6A30' : '#3A6A3A',
               fontWeight:600 }}>
-              {fileFormat === 'burgundy' ? 'バーガンディ在庫' : '5社在庫一覧'}
+              {fileFormat === 'winelist' ? 'ワインリスト' : fileFormat === 'burgundy' ? 'バーガンディ在庫' : '5社在庫一覧'}
             </span>
             <span style={{ fontSize:11, padding:'2px 8px', borderRadius:2, background:'#F0F0F0', color:C.tx }}>
-              {importTarget === 'winelist' ? 'ワインリスト' : '在庫'} · {totalItems}件
+              {totalItems}件
             </span>
           </div>
 
-          {/* For Burgundy: show store selector */}
-          {fileFormat === 'burgundy' && (
+          {/* Store selector for Burgundy or Wine List */}
+          {(fileFormat === 'burgundy' || fileFormat === 'winelist') && (
             <div style={{ marginBottom:12 }}>
-              <div style={{ fontSize:10, color:C.sub, marginBottom:4, textTransform:'uppercase', letterSpacing:0.5 }}>取込先店舗</div>
+              <div style={{ fontSize:10, color:C.sub, marginBottom:4, textTransform:'uppercase', letterSpacing:0.5 }}>
+                {fileFormat === 'winelist' ? 'リスト先店舗' : '取込先店舗'}
+              </div>
               <select value={storeId} onChange={e => setStoreId(e.target.value)}
                 style={{ width:'100%', padding:'8px 10px', border:`1px solid ${C.bd}`, borderRadius:2, fontSize:14, fontFamily:F }}>
-                {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {stores.filter(s => fileFormat === 'winelist' ? s.id !== 'burgundy' : true).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
           )}
@@ -1086,35 +1152,42 @@ function ExcelImport({ stores, categories, onClose, onImported }) {
             </div>
           )}
 
-          {/* Sheet checkboxes */}
+          {/* Section/Sheet checkboxes */}
           <div style={{ maxHeight:'35vh', overflowY:'auto', marginBottom:16 }}>
-            {groups.map(g => (
-              <div key={g.sheet} style={{
-                padding:'10px 12px', marginBottom:6, background: checked[g.sheet] ? '#F5F3EE' : C.card,
-                border:`1px solid ${checked[g.sheet] ? C.acc : C.bd}`, borderRadius:2, cursor:'pointer',
-              }} onClick={() => setChecked(c => ({ ...c, [g.sheet]: !c[g.sheet] }))}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <div>
-                    <span style={{ fontSize:13, fontWeight:500, color:C.tx }}>{g.label}</span>
-                    <span style={{ fontSize:11, color:C.sub, marginLeft:8 }}>{g.items.length}件</span>
+            {groups.map(g => {
+              const key = fileFormat === 'winelist' ? (g.section || g.sheet) : g.sheet;
+              const label = fileFormat === 'winelist' ? `${g.section_en || ''} ${g.section || ''}`.trim() : g.label;
+              return (
+                <div key={key} style={{
+                  padding:'10px 12px', marginBottom:6, background: checked[key] ? '#F5F3EE' : C.card,
+                  border:`1px solid ${checked[key] ? C.acc : C.bd}`, borderRadius:2, cursor:'pointer',
+                }} onClick={() => setChecked(c => ({ ...c, [key]: !c[key] }))}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <div>
+                      <span style={{ fontSize:13, fontWeight:500, color:C.tx }}>{label}</span>
+                      <span style={{ fontSize:11, color:C.sub, marginLeft:8 }}>{g.items.length}件</span>
+                    </div>
+                    <div style={{ width:18, height:18, borderRadius:2, border:`2px solid ${checked[key] ? C.acc : C.bd}`,
+                      background: checked[key] ? C.acc : 'transparent', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      {checked[key] && <span style={{ color:'#fff', fontSize:12, fontWeight:700 }}>✓</span>}
+                    </div>
                   </div>
-                  <div style={{ width:18, height:18, borderRadius:2, border:`2px solid ${checked[g.sheet] ? C.acc : C.bd}`,
-                    background: checked[g.sheet] ? C.acc : 'transparent', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                    {checked[g.sheet] && <span style={{ color:'#fff', fontSize:12, fontWeight:700 }}>✓</span>}
-                  </div>
+                  {checked[key] && (
+                    <div style={{ marginTop:6 }}>
+                      {g.items.slice(0, 3).map((item, i) => (
+                        <div key={i} style={{ fontSize:11, color:C.sub, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                          {fileFormat === 'winelist'
+                            ? `${item.vintage || 'NV'} ${item.name_en || item.name_jp || ''} ${item.sell_price ? '¥' + item.sell_price.toLocaleString() : ''}`
+                            : `${item.vintage || 'NV'} ${item.name} (${item.quantity}本)`
+                          }
+                        </div>
+                      ))}
+                      {g.items.length > 3 && <div style={{ fontSize:10, color:C.sub }}>...他 {g.items.length - 3}件</div>}
+                    </div>
+                  )}
                 </div>
-                {checked[g.sheet] && (
-                  <div style={{ marginTop:6 }}>
-                    {g.items.slice(0, 3).map((item, i) => (
-                      <div key={i} style={{ fontSize:11, color:C.sub, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                        {item.vintage || 'NV'} {item.name} ({item.quantity}本)
-                      </div>
-                    ))}
-                    {g.items.length > 3 && <div style={{ fontSize:10, color:C.sub }}>...他 {g.items.length - 3}件</div>}
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {error && <div style={{ color:C.red, fontSize:12, marginBottom:12 }}>{error}</div>}
