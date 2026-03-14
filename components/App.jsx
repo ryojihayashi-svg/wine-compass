@@ -642,6 +642,145 @@ function AIDiagnosisView({ storeId, stores, onBack }) {
   );
 }
 
+// ===== ReplenishAlert — shown when stock hits 0 for a wine-listed item =====
+function ReplenishAlert({ data, stores, onClose, onReplenish }) {
+  const [replenishing, setReplenishing] = useState(false);
+  if (!data || !data.needsAction) return null;
+
+  const { beverage, onWineList, burgundyMatch, aiSuggestions } = data;
+
+  const doReplenish = async (burgundyItem) => {
+    setReplenishing(true);
+    try {
+      // Transfer: decrease Burgundy stock, increase store stock
+      await fetch(`/api/beverages/${burgundyItem.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity: Math.max(0, burgundyItem.quantity - 1) }),
+      });
+      await fetch(`/api/beverages/${beverage.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity: 1 }),
+      });
+      if (onReplenish) onReplenish();
+      onClose();
+    } catch (e) {}
+    setReplenishing(false);
+  };
+
+  return (
+    <BottomSheet open={true} onClose={onClose}>
+      <div>
+        {/* Header */}
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12 }}>
+          <span style={{ fontSize:20 }}>⚠️</span>
+          <div>
+            <div style={{ fontSize:15, fontWeight:600, color:C.tx, fontFamily:F }}>在庫切れ</div>
+            <div style={{ fontSize:11, color:C.sub }}>
+              {onWineList ? 'ワインリスト掲載中のワインです' : '在庫が0になりました'}
+            </div>
+          </div>
+        </div>
+
+        {/* Wine info */}
+        <div style={{ padding:12, background:'#F5F3EE', borderRadius:2, marginBottom:16, border:`1px solid ${C.bd}` }}>
+          <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx }}>
+            {beverage.name}
+          </div>
+          <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>
+            {beverage.vintage || 'NV'} · {beverage.producer || ''}
+          </div>
+        </div>
+
+        {/* Burgundy exact match */}
+        {burgundyMatch?.type === 'exact' && (
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontSize:12, fontWeight:600, color:C.green, marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
+              <span>✅</span> バーガンディ倉庫に在庫あり
+            </div>
+            <div style={{ padding:12, background:C.card, border:`1px solid ${C.bd}`, borderRadius:2,
+              display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <div>
+                <div style={{ fontSize:13, fontWeight:500, color:C.tx }}>{burgundyMatch.item.name}</div>
+                <div style={{ fontSize:11, color:C.sub }}>{burgundyMatch.item.vintage || 'NV'} · 在庫{burgundyMatch.item.quantity}本</div>
+              </div>
+              <button onClick={() => doReplenish(burgundyMatch.item)} disabled={replenishing}
+                style={{ padding:'8px 16px', borderRadius:2, border:'none', background:C.green, color:'#fff',
+                  fontSize:12, fontFamily:F, fontWeight:600, cursor:'pointer', opacity: replenishing ? 0.5 : 1 }}>
+                {replenishing ? '...' : '補充する'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Burgundy similar matches */}
+        {burgundyMatch?.type === 'similar' && (
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontSize:12, fontWeight:600, color:C.acc, marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
+              <span>🔍</span> バーガンディ倉庫に類似ワインあり
+            </div>
+            {burgundyMatch.items.slice(0, 3).map(item => (
+              <div key={item.id} style={{ padding:10, background:C.card, border:`1px solid ${C.bd}`, borderRadius:2,
+                display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:12, fontWeight:500, color:C.tx, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                    {item.name}
+                  </div>
+                  <div style={{ fontSize:10, color:C.sub }}>{item.vintage || 'NV'} · 在庫{item.quantity}本</div>
+                </div>
+                <button onClick={() => doReplenish(item)} disabled={replenishing}
+                  style={{ padding:'6px 12px', borderRadius:2, border:`1px solid ${C.green}`, background:'transparent',
+                    color:C.green, fontSize:11, fontFamily:F, fontWeight:600, cursor:'pointer', flexShrink:0, marginLeft:8 }}>
+                  補充
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* No Burgundy match */}
+        {!burgundyMatch && (
+          <div style={{ fontSize:12, color:C.sub, marginBottom:12, padding:8, background:'#FFF8F0', borderRadius:2, border:'1px solid #F0E8D8' }}>
+            バーガンディ倉庫に該当する在庫がありません
+          </div>
+        )}
+
+        {/* AI suggestions */}
+        {aiSuggestions && aiSuggestions.length > 0 && (
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontSize:12, fontWeight:600, color:C.acc, marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
+              <span>🤖</span> AIおすすめ代替ワイン
+            </div>
+            {aiSuggestions.map((s, i) => (
+              <div key={i} style={{ padding:10, background:C.card, border:`1px solid ${C.bd}`, borderRadius:2, marginBottom:4 }}>
+                <div style={{ fontSize:12, fontWeight:500, color:C.tx }}>{s.name}</div>
+                <div style={{ fontSize:10, color:C.sub, marginTop:2 }}>{s.reason}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{ display:'flex', gap:8, marginTop:8 }}>
+          {onWineList && (
+            <button onClick={() => { /* Could auto-remove from wine list */ onClose(); }}
+              style={{ flex:1, padding:12, borderRadius:2, border:`1px solid ${C.red}`, background:'transparent',
+                color:C.red, fontSize:12, fontFamily:F, fontWeight:600, cursor:'pointer' }}>
+              リストから外す
+            </button>
+          )}
+          <button onClick={onClose}
+            style={{ flex:1, padding:12, borderRadius:2, border:'none', background:C.acc,
+              color:'#fff', fontSize:12, fontFamily:F, fontWeight:600, cursor:'pointer' }}>
+            確認
+          </button>
+        </div>
+      </div>
+    </BottomSheet>
+  );
+}
+
 // ===== GlobalSearch =====
 function GlobalSearch({ stores, onSelect }) {
   const [q, setQ] = useState('');
@@ -1046,7 +1185,7 @@ function PhotoImport({ stores, categories, onClose, onImported }) {
 }
 
 // ===== PhotoRemoval =====
-function PhotoRemoval({ stores, onClose, onRemoved }) {
+function PhotoRemoval({ stores, onClose, onRemoved, onStockZero }) {
   const [step, setStep] = useState('capture'); // capture | loading | result
   const [identified, setIdentified] = useState(null);
   const [matches, setMatches] = useState([]);
@@ -1090,14 +1229,19 @@ function PhotoRemoval({ stores, onClose, onRemoved }) {
   const removeOne = async (item) => {
     if (item.quantity <= 0) return;
     setRemoving(item.id);
+    const newQty = item.quantity - 1;
     try {
       await fetch(`/api/beverages/${item.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quantity: Math.max(0, item.quantity - 1) }),
+        body: JSON.stringify({ quantity: Math.max(0, newQty) }),
       });
-      setMatches(prev => prev.map(m => m.id === item.id ? { ...m, quantity: m.quantity - 1 } : m));
+      setMatches(prev => prev.map(m => m.id === item.id ? { ...m, quantity: newQty } : m));
       onRemoved();
+      // Check replenishment when stock hits 0
+      if (newQty === 0 && onStockZero) {
+        onStockZero(item.id, storeId);
+      }
     } catch (err) {
       setError(err.message);
     }
@@ -1729,7 +1873,7 @@ function WineListPrint({ storeId, stores, onBack }) {
 }
 
 // ===== WineListManager =====
-function WineListManager({ storeId, categoryId, stores, categories, onBack, onRefreshHome }) {
+function WineListManager({ storeId, categoryId, stores, categories, onBack, onRefreshHome, onStockZero }) {
   const [wlItems, setWlItems] = useState([]);
   const [invItems, setInvItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1921,6 +2065,9 @@ function WineListManager({ storeId, categoryId, stores, categories, onBack, onRe
                   body: JSON.stringify({ quantity: newQty }),
                 });
                 await fetchWineList();
+                if (newQty === 0 && onStockZero) {
+                  onStockZero(bevId, storeId);
+                }
               } catch(e) {}
             };
             return filtered.map(wl => {
@@ -2801,6 +2948,7 @@ export default function App() {
   const [showPhotoRemoval, setShowPhotoRemoval] = useState(false);
   const [toast, setToast] = useState('');
   const [showAI, setShowAI] = useState(false);
+  const [replenishData, setReplenishData] = useState(null);
   const [homeKey, setHomeKey] = useState(0); // for refreshing home view
 
   useEffect(() => {
@@ -2833,7 +2981,21 @@ export default function App() {
     }
     if (selected?.id === id) {
       const r = await fetch(`/api/beverages/${id}`);
-      if (r.ok) setSelected(await r.json());
+      if (r.ok) {
+        const updated = await r.json();
+        setSelected(updated);
+        // Check replenishment when quantity hits 0
+        if (updates.quantity === 0 && updated.store_id) {
+          try {
+            const rr = await fetch('/api/replenish', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ beverage_id: id, store_id: updated.store_id }),
+            });
+            const rd = await rr.json();
+            if (rd.needsAction) setReplenishData(rd);
+          } catch(e) {}
+        }
+      }
     }
     setToast('保存しました');
   };
@@ -2867,7 +3029,17 @@ export default function App() {
     }
     if (subView?.type === 'wine-list') {
       return <WineListManager storeId={subView.params.store} categoryId={subView.params.category}
-        stores={stores} categories={categories} onBack={goBack} onRefreshHome={() => setHomeKey(k => k + 1)} />;
+        stores={stores} categories={categories} onBack={goBack} onRefreshHome={() => setHomeKey(k => k + 1)}
+        onStockZero={async (bevId, sid) => {
+          try {
+            const r = await fetch('/api/replenish', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ beverage_id: bevId, store_id: sid }),
+            });
+            const d = await r.json();
+            if (d.needsAction) setReplenishData(d);
+          } catch(e) {}
+        }} />;
     }
     if (subView?.type === 'wine-list-print') {
       return <WineListPrint storeId={subView.params?.store} stores={stores} onBack={goBack} />;
@@ -2950,8 +3122,21 @@ export default function App() {
       {showAdd && <AddItemForm stores={stores} categories={categories} onClose={() => setShowAdd(false)} onAdd={addItem} />}
       {showImport && <ExcelImport stores={stores} categories={categories} onClose={() => setShowImport(false)} onImported={() => setToast('インポート完了')} />}
       {showPhotoImport && <PhotoImport stores={stores} categories={categories} onClose={() => setShowPhotoImport(false)} onImported={() => setToast('写真入庫完了')} />}
-      {showPhotoRemoval && <PhotoRemoval stores={stores} onClose={() => setShowPhotoRemoval(false)} onRemoved={() => setToast('出庫しました')} />}
+      {showPhotoRemoval && <PhotoRemoval stores={stores} onClose={() => setShowPhotoRemoval(false)} onRemoved={() => setToast('出庫しました')}
+        onStockZero={async (bevId, storeId) => {
+          try {
+            const r = await fetch('/api/replenish', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ beverage_id: bevId, store_id: storeId }),
+            });
+            const d = await r.json();
+            if (d.needsAction) setReplenishData(d);
+          } catch(e) {}
+        }} />}
       {showAI && <AISommelier onClose={() => setShowAI(false)} />}
+      {replenishData && <ReplenishAlert data={replenishData} stores={stores}
+        onClose={() => setReplenishData(null)}
+        onReplenish={() => { setReplenishData(null); setToast('補充しました'); setHomeKey(k => k + 1); }} />}
       <Toast msg={toast} onClose={() => setToast('')} />
       <style>{`
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
