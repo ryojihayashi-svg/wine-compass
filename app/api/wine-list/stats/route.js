@@ -7,32 +7,30 @@ const sb = () => createClient(
 );
 
 // GET /api/wine-list/stats — returns wine list stats per store
+// Combines data from wc_wine_list (beverage-linked) and wc_wine_list_items (standalone imported)
 export async function GET() {
   const supabase = sb();
 
-  // Get categories for parent-child mapping
-  const { data: categories } = await supabase
-    .from('wc_categories')
-    .select('id, name, name_en, parent_id, sort_order')
-    .order('sort_order');
+  const stores = {};
+  let globalTotal = 0;
+  let globalValue = 0;
 
-  // Step 1: Get all active wine list items with pagination
+  // === Source 1: wc_wine_list (beverage-linked) ===
   let wlItems = [];
   {
     const PAGE_SIZE = 1000;
     let from = 0;
     while (true) {
-      const { data, error: pageErr } = await supabase
+      const { data, error } = await supabase
         .from('wc_wine_list')
         .select('id, store_id, beverage_id, sell_price')
         .eq('is_active', true)
         .range(from, from + PAGE_SIZE - 1);
 
-      if (pageErr) {
-        if (pageErr.message.includes('does not exist') || pageErr.code === '42P01' || pageErr.message.includes('schema cache')) {
-          return NextResponse.json({ stores: {}, total: 0 });
-        }
-        return NextResponse.json({ error: pageErr.message }, { status: 500 });
+      if (error) {
+        if (error.message.includes('does not exist') || error.code === '42P01' || error.message.includes('schema cache')) break;
+        // Non-fatal, continue to wc_wine_list_items
+        break;
       }
       if (!data || data.length === 0) break;
       wlItems = wlItems.concat(data);
@@ -41,86 +39,60 @@ export async function GET() {
     }
   }
 
-  if (wlItems.length === 0) {
-    return NextResponse.json({ stores: {}, total: 0, totalValue: 0 });
-  }
+  // Get beverage prices for wc_wine_list items
+  if (wlItems.length > 0) {
+    const bevIds = [...new Set(wlItems.map(i => i.beverage_id))];
+    const { data: beverages } = await supabase
+      .from('wc_beverages')
+      .select('id, price')
+      .in('id', bevIds);
+    const bevMap = {};
+    for (const b of (beverages || [])) bevMap[b.id] = b;
 
-  // Step 2: Get beverage data for category mapping
-  const bevIds = [...new Set(wlItems.map(i => i.beverage_id))];
-  const { data: beverages } = await supabase
-    .from('wc_beverages')
-    .select('id, category_id, price')
-    .in('id', bevIds);
-
-  // Build beverage lookup map
-  const bevMap = {};
-  for (const b of (beverages || [])) {
-    bevMap[b.id] = b;
-  }
-
-  // Build parent-child map
-  const parentChildren = {};
-  for (const cat of (categories || [])) {
-    if (cat.parent_id) {
-      if (!parentChildren[cat.parent_id]) parentChildren[cat.parent_id] = [];
-      parentChildren[cat.parent_id].push(cat.id);
+    for (const item of wlItems) {
+      const sid = item.store_id || '_none';
+      if (!stores[sid]) stores[sid] = { total: 0, totalValue: 0 };
+      stores[sid].total++;
+      const price = item.sell_price || bevMap[item.beverage_id]?.price || 0;
+      stores[sid].totalValue += price;
+      globalTotal++;
+      globalValue += price;
     }
   }
 
-  // Group by store
-  const storeItems = {};
-  for (const item of wlItems) {
+  // === Source 2: wc_wine_list_items (standalone imported) ===
+  let wliItems = [];
+  {
+    const PAGE_SIZE = 1000;
+    let from = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from('wc_wine_list_items')
+        .select('id, store_id, sell_price, sell_price_incl')
+        .eq('is_active', true)
+        .range(from, from + PAGE_SIZE - 1);
+
+      if (error) {
+        if (error.message.includes('does not exist') || error.code === '42P01' || error.message.includes('schema cache')) break;
+        break;
+      }
+      if (!data || data.length === 0) break;
+      wliItems = wliItems.concat(data);
+      if (data.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+  }
+
+  // Add wc_wine_list_items stats (avoid double-counting by using wli data as-is)
+  for (const item of wliItems) {
     const sid = item.store_id || '_none';
-    if (!storeItems[sid]) storeItems[sid] = [];
-    storeItems[sid].push(item);
+    if (!stores[sid]) stores[sid] = { total: 0, totalValue: 0 };
+    stores[sid].total++;
+    const price = item.sell_price_incl || item.sell_price || 0;
+    stores[sid].totalValue += price;
+    globalTotal++;
+    globalValue += price;
   }
-
-  // Aggregate per store
-  const aggregateStore = (items) => {
-    const directCounts = {};
-    let total = 0, totalValue = 0;
-
-    for (const item of items) {
-      const bev = bevMap[item.beverage_id];
-      const cid = bev?.category_id || 0;
-      if (!directCounts[cid]) directCounts[cid] = { count: 0, value: 0 };
-      directCounts[cid].count++;
-      const price = item.sell_price || bev?.price || 0;
-      directCounts[cid].value += price;
-      total++;
-      totalValue += price;
-    }
-
-    // Build top-level category results
-    const catResult = {};
-    for (const cat of (categories || [])) {
-      if (cat.parent_id) continue;
-      const childIds = parentChildren[cat.id] || [];
-      let count = (directCounts[cat.id]?.count || 0);
-      let value = (directCounts[cat.id]?.value || 0);
-      for (const childId of childIds) {
-        count += (directCounts[childId]?.count || 0);
-        value += (directCounts[childId]?.value || 0);
-      }
-      if (count > 0) {
-        catResult[cat.id] = { count, value, name: cat.name, name_en: cat.name_en };
-      }
-    }
-
-    return { total, totalValue, categories: catResult };
-  };
-
-  const stores = {};
-  for (const [sid, sitems] of Object.entries(storeItems)) {
-    stores[sid] = aggregateStore(sitems);
-  }
-
-  // Global totals
-  const globalTotal = wlItems.length;
-  const globalValue = wlItems.reduce((s, i) => {
-    const bev = bevMap[i.beverage_id];
-    return s + (i.sell_price || bev?.price || 0);
-  }, 0);
 
   return NextResponse.json({
     stores,

@@ -410,7 +410,7 @@ function HomeView({ stores, categories, onNavigate, onWineList, onWineListPrint,
 
                 {/* Wine List */}
                 <div style={{ display:'flex', alignItems:'center' }}>
-                  <div onClick={() => onWineList(store.id)} style={{
+                  <div onClick={() => onWineListPrint(store.id)} style={{
                     padding:'11px 16px', cursor:'pointer', display:'flex', alignItems:'center', flex:1,
                   }}>
                     <div style={{ fontSize:12, fontWeight:600, color:C.tx, flex:1, fontFamily:F }}>Wine List</div>
@@ -1799,8 +1799,312 @@ function PhotoRemoval({ stores, onClose, onRemoved, onStockZero }) {
   );
 }
 
+// ===== WineListReconcile — 在庫と連動 =====
+function WineListReconcile({ storeId, stores, onBack, onDone }) {
+  const [loading, setLoading] = useState(true);
+  const [matches, setMatches] = useState([]);
+  const [unmatched, setUnmatched] = useState([]);
+  const [summary, setSummary] = useState(null);
+  const [step, setStep] = useState('review'); // review | confirm | done
+  const [toast, setToast] = useState('');
+  const [processing, setProcessing] = useState(false);
+  const [excluded, setExcluded] = useState(new Set()); // match indices to exclude
+  const [priceOverrides, setPriceOverrides] = useState({}); // { matchIdx: price }
+
+  const store = stores.find(s => s.id === storeId);
+  const storeName = store?.name || storeId;
+
+  // Run reconciliation
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const r = await fetch('/api/wine-list-reconcile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ store_id: storeId }),
+        });
+        const d = await r.json();
+        setMatches(d.matches || []);
+        setUnmatched(d.unmatched || []);
+        setSummary(d);
+      } catch (e) {
+        setToast('照合エラー: ' + e.message);
+      }
+      setLoading(false);
+    })();
+  }, [storeId]);
+
+  const toggleExclude = (idx) => {
+    setExcluded(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  };
+
+  // Create wine list entries from matches
+  const doReconcile = async () => {
+    setProcessing(true);
+    try {
+      const items = matches
+        .filter((_, i) => !excluded.has(i))
+        .filter(m => !m.alreadyLinked)
+        .map((m, i) => ({
+          store_id: storeId,
+          beverage_id: m.beverage.id,
+          sell_price: priceOverrides[i] !== undefined
+            ? (priceOverrides[i] ? Number(priceOverrides[i]) : null)
+            : (m.wlItem.sell_price_incl || m.wlItem.sell_price || m.beverage.price || null),
+        }));
+
+      if (items.length === 0) {
+        setToast('連動するアイテムがありません');
+        setProcessing(false);
+        return;
+      }
+
+      const r = await fetch('/api/wine-list', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+      });
+
+      if (r.ok) {
+        const d = await r.json();
+        setStep('done');
+        setToast(`${d.added}件をワインリストに連動しました`);
+      } else {
+        const err = await r.json();
+        setToast('エラー: ' + (err.error || 'unknown'));
+      }
+    } catch (e) {
+      setToast('エラー: ' + e.message);
+    }
+    setProcessing(false);
+  };
+
+  const confBadge = (conf) => {
+    const colors = { high: '#4A6352', medium: '#B8860B', low: '#C25050' };
+    const labels = { high: '高', medium: '中', low: '低' };
+    return (
+      <span style={{
+        display: 'inline-block', padding: '2px 8px', borderRadius: 10,
+        fontSize: 9, fontWeight: 600, color: '#fff', background: colors[conf] || '#999',
+      }}>{labels[conf] || conf}</span>
+    );
+  };
+
+  if (loading) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center', color: C.sub, fontFamily: F }}>
+        <div style={{ animation: 'spin 1s linear infinite', width: 20, height: 20, border: `2px solid ${C.bd}`, borderTop: `2px solid ${C.acc}`, borderRadius: '50%', margin: '0 auto 12px' }} />
+        在庫データと照合中...
+      </div>
+    );
+  }
+
+  // Done step
+  if (step === 'done') {
+    return (
+      <div style={{ minHeight: '100vh', background: C.bg, fontFamily: F }}>
+        <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: `1px solid ${C.bd}` }}>
+          <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><IcoBack /></button>
+          <div style={{ fontSize: 15, fontWeight: 500, fontFamily: SR, color: C.tx }}>連動完了</div>
+        </div>
+        <div style={{ padding: 40, textAlign: 'center' }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: C.tx, marginBottom: 8 }}>在庫との連動が完了しました</div>
+          <div style={{ fontSize: 13, color: C.sub, marginBottom: 24 }}>
+            ワインリストが在庫と紐付けされました。<br />
+            今後はアプリ内でリストの追加・削除ができます。
+          </div>
+          <button onClick={() => { if (onDone) onDone(); onBack(); }} style={{
+            padding: '12px 32px', borderRadius: 2, border: 'none', background: C.acc,
+            color: '#fff', fontSize: 14, fontFamily: F, fontWeight: 600, cursor: 'pointer',
+          }}>ワインリストを表示</button>
+        </div>
+      </div>
+    );
+  }
+
+  const activeMatches = matches.filter((_, i) => !excluded.has(i));
+  const newLinks = activeMatches.filter(m => !m.alreadyLinked);
+
+  return (
+    <div style={{ minHeight: '100vh', background: C.bg, fontFamily: F }}>
+      {/* Toast */}
+      {toast && (
+        <div style={{ position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 100,
+          background: '#2A2520', color: '#fff', padding: '8px 20px', borderRadius: 4, fontSize: 12, fontFamily: F }}>
+          {toast}
+        </div>
+      )}
+
+      {/* Header */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 10, background: C.bg, borderBottom: `1px solid ${C.bd}`, padding: '12px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><IcoBack /></button>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 15, fontWeight: 500, fontFamily: SR, color: C.tx }}>
+              {storeName} 在庫連動
+            </div>
+            <div style={{ fontSize: 11, color: C.sub }}>ワインリスト → 在庫マッチング</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Summary bar */}
+      <div style={{ display: 'flex', gap: 8, padding: '12px 16px', borderBottom: `1px solid ${C.bd}`, background: C.card }}>
+        <div style={{ flex: 1, textAlign: 'center' }}>
+          <div style={{ fontSize: 9, color: C.sub }}>リスト</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: C.tx }}>{summary?.total || 0}</div>
+        </div>
+        <div style={{ flex: 1, textAlign: 'center' }}>
+          <div style={{ fontSize: 9, color: C.sub }}>マッチ</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#4A6352' }}>{matches.length}</div>
+        </div>
+        <div style={{ flex: 1, textAlign: 'center' }}>
+          <div style={{ fontSize: 9, color: C.sub }}>未マッチ</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#C25050' }}>{unmatched.length}</div>
+        </div>
+        <div style={{ flex: 1, textAlign: 'center' }}>
+          <div style={{ fontSize: 9, color: C.sub }}>連動済</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: C.sub }}>{matches.filter(m => m.alreadyLinked).length}</div>
+        </div>
+      </div>
+
+      {/* Confidence breakdown */}
+      {summary && (
+        <div style={{ padding: '8px 16px', fontSize: 11, color: C.sub, borderBottom: `1px solid ${C.bd}`, display: 'flex', gap: 12 }}>
+          <span>高信頼: {summary.highConfidence}</span>
+          <span>中信頼: {summary.mediumConfidence}</span>
+          <span>低信頼: {summary.lowConfidence}</span>
+        </div>
+      )}
+
+      <div style={{ padding: '12px 16px 140px' }}>
+        {/* Matched items */}
+        {matches.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.tx, marginBottom: 8 }}>
+              マッチしたアイテム ({matches.length})
+            </div>
+            {matches.map((m, i) => {
+              const isExcluded = excluded.has(i);
+              return (
+                <div key={i} style={{
+                  padding: '10px 14px', marginBottom: 4, borderRadius: 2,
+                  border: `1px solid ${isExcluded ? '#ddd' : m.alreadyLinked ? '#E0DBCF' : m.confidence === 'high' ? '#cde6d5' : m.confidence === 'medium' ? '#e6dfc0' : '#e6cfc0'}`,
+                  background: isExcluded ? '#f5f5f5' : C.card,
+                  opacity: isExcluded ? 0.5 : 1,
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: C.tx, marginBottom: 2 }}>
+                        {m.wlItem.name_en}
+                        {m.wlItem.vintage && <span style={{ color: C.sub, fontWeight: 400 }}> {m.wlItem.vintage}</span>}
+                      </div>
+                      {m.wlItem.name_jp && (
+                        <div style={{ fontSize: 10, color: C.sub }}>{m.wlItem.name_jp}</div>
+                      )}
+                      <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
+                        {m.wlItem.section_en || m.wlItem.section}
+                        {m.wlItem.sell_price_incl && ` · ¥${m.wlItem.sell_price_incl.toLocaleString()}`}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                      {confBadge(m.confidence)}
+                      {m.alreadyLinked && (
+                        <span style={{ fontSize: 9, color: C.sub, padding: '2px 6px', borderRadius: 10, border: `1px solid ${C.bd}` }}>連動済</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Matched beverage */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                    <span style={{ fontSize: 10, color: '#4A6352' }}>→</span>
+                    <div style={{ flex: 1, fontSize: 11, color: '#4A6352' }}>
+                      <strong>{m.beverage.name}</strong>
+                      {m.beverage.vintage && ` ${m.beverage.vintage}`}
+                      <span style={{ color: C.sub }}> ({stores.find(s => s.id === m.beverage.store_id)?.name || m.beverage.store_id})</span>
+                      {m.beverage.quantity !== undefined && (
+                        <span style={{ color: C.sub }}> · 残{m.beverage.quantity}本</span>
+                      )}
+                    </div>
+                    {!m.alreadyLinked && (
+                      <button onClick={() => toggleExclude(i)} style={{
+                        padding: '3px 8px', borderRadius: 2, border: `1px solid ${C.bd}`,
+                        background: 'transparent', fontSize: 9, color: isExcluded ? '#4A6352' : '#C25050',
+                        cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap',
+                      }}>
+                        {isExcluded ? '戻す' : '除外'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Unmatched items */}
+        {unmatched.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#C25050', marginBottom: 8 }}>
+              未マッチ ({unmatched.length})
+            </div>
+            <div style={{ fontSize: 11, color: C.sub, marginBottom: 8 }}>
+              在庫に該当するアイテムが見つかりませんでした。連動後に手動で追加できます。
+            </div>
+            {unmatched.map((item, i) => (
+              <div key={i} style={{
+                padding: '8px 14px', marginBottom: 3, borderRadius: 2,
+                border: `1px solid ${C.bd}`, background: '#faf8f4',
+              }}>
+                <div style={{ fontSize: 12, color: C.tx }}>
+                  {item.name_en}
+                  {item.vintage && <span style={{ color: C.sub }}> {item.vintage}</span>}
+                </div>
+                {item.name_jp && (
+                  <div style={{ fontSize: 10, color: C.sub }}>{item.name_jp}</div>
+                )}
+                <div style={{ fontSize: 10, color: '#999' }}>
+                  {item.section_en || item.section}
+                  {item.sell_price_incl && ` · ¥${item.sell_price_incl.toLocaleString()}`}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Bottom action bar */}
+      {newLinks.length > 0 && (
+        <div style={{
+          position: 'fixed', bottom: 60, left: 0, right: 0, zIndex: 20,
+          padding: '12px 16px', background: C.bg, borderTop: `1px solid ${C.bd}`,
+          display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'center',
+          maxWidth: 430, margin: '0 auto',
+        }}>
+          <div style={{ fontSize: 12, color: C.tx }}>
+            <strong>{newLinks.length}</strong>件を連動
+          </div>
+          <button onClick={doReconcile} disabled={processing} style={{
+            padding: '12px 32px', borderRadius: 2, border: 'none',
+            background: processing ? C.bd : C.acc, color: '#fff',
+            fontSize: 14, fontFamily: F, fontWeight: 600, cursor: processing ? 'default' : 'pointer',
+          }}>
+            {processing ? '処理中...' : '在庫と連動する'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ===== WineListPrint =====
-function WineListPrint({ storeId, stores, onBack }) {
+function WineListPrint({ storeId, stores, onBack, onReconcile }) {
   const [sections, setSections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [allStoreData, setAllStoreData] = useState({});
@@ -2110,6 +2414,18 @@ function WineListPrint({ storeId, stores, onBack }) {
             </button>
           </div>
         </div>
+
+        {/* Reconcile button */}
+        {selectedStore && sections.length > 0 && onReconcile && (
+          <button onClick={() => onReconcile(selectedStore)} style={{
+            width: '100%', marginTop: 8, padding: '10px 16px', borderRadius: 2,
+            border: `1px solid ${C.acc}`, background: 'transparent',
+            color: C.acc, fontSize: 12, fontFamily: F, fontWeight: 600, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          }}>
+            🔗 在庫と連動する
+          </button>
+        )}
 
         {/* Store selector */}
         {availableStores.length > 1 && (
@@ -4014,8 +4330,13 @@ export default function App() {
           } catch(e) {}
         }} />;
     }
+    if (subView?.type === 'wine-list-reconcile') {
+      return <WineListReconcile storeId={subView.params?.store} stores={stores} onBack={goBack}
+        onDone={() => setHomeKey(k => k + 1)} />;
+    }
     if (subView?.type === 'wine-list-print') {
-      return <WineListPrint storeId={subView.params?.store} stores={stores} onBack={goBack} />;
+      return <WineListPrint storeId={subView.params?.store} stores={stores} onBack={goBack}
+        onReconcile={(sid) => navigate('wine-list-reconcile', { store: sid })} />;
     }
     switch (tab) {
       case 'home': return <HomeView key={homeKey} stores={stores} categories={categories} onNavigate={navigate} onWineList={openWineList} onWineListPrint={openWineListPrint} onShowAI={() => setShowAI(true)} onAIDiagnosis={openAIDiagnosis} />;
