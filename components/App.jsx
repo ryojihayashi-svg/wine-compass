@@ -686,11 +686,26 @@ function WineListSectionView({ storeId, stores, onBack, onNavigate }) {
   );
 }
 
-// ===== WineListItemsPage — list wine list items (like ItemListPage) =====
+// ===== WineListItemsPage — list wine list items (same UI as ItemListPage) =====
 function WineListItemsPage({ storeId, section, title, stores, onBack }) {
+  const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState('');
+  const [sort, setSort] = useState('section');
   const [expandedId, setExpandedId] = useState(null);
+  const debRef = useRef(null);
+
+  const SORT_OPTIONS = [
+    { val: 'section', label: 'セクション順' },
+    { val: 'name', label: '名前順' },
+    { val: 'price_desc', label: '高い順' },
+    { val: 'price_asc', label: '安い順' },
+    { val: 'producer', label: '生産者順' },
+  ];
+
+  const storeColor = {};
+  stores.forEach(s => { storeColor[s.id] = s.color || '#4A6352'; });
 
   useEffect(() => {
     (async () => {
@@ -700,59 +715,106 @@ function WineListItemsPage({ storeId, section, title, stores, onBack }) {
         const d = await r.json();
         let all = d.items || [];
         if (section) all = all.filter(it => it.section === section);
-        setItems(all);
-      } catch(e) { setItems([]); }
+        setAllItems(all);
+      } catch(e) { setAllItems([]); }
       setLoading(false);
     })();
   }, [storeId, section]);
 
+  // Filter & sort
+  useEffect(() => {
+    let filtered = allItems;
+    if (q) {
+      const lq = q.toLowerCase();
+      filtered = filtered.filter(it =>
+        (it.name_en || '').toLowerCase().includes(lq) ||
+        (it.name_jp || '').toLowerCase().includes(lq) ||
+        (it.producer_en || '').toLowerCase().includes(lq) ||
+        (it.producer_jp || '').toLowerCase().includes(lq) ||
+        String(it.vintage || '').includes(lq)
+      );
+    }
+    const sorted = [...filtered];
+    switch (sort) {
+      case 'name': sorted.sort((a, b) => (a.name_en || '').localeCompare(b.name_en || '')); break;
+      case 'price_desc': sorted.sort((a, b) => (b.sell_price_incl || b.sell_price || 0) - (a.sell_price_incl || a.sell_price || 0)); break;
+      case 'price_asc': sorted.sort((a, b) => (a.sell_price_incl || a.sell_price || 0) - (b.sell_price_incl || b.sell_price || 0)); break;
+      case 'producer': sorted.sort((a, b) => (a.producer_en || '').localeCompare(b.producer_en || '') || (a.sell_price_incl || 0) - (b.sell_price_incl || 0)); break;
+      default: sorted.sort((a, b) => (a.section_order || 0) - (b.section_order || 0) || (a.sort_order || 0) - (b.sort_order || 0)); break;
+    }
+    setItems(sorted);
+  }, [allItems, q, sort]);
+
+  const onSearch = (val) => {
+    if (debRef.current) clearTimeout(debRef.current);
+    debRef.current = setTimeout(() => setQ(val), 300);
+  };
+
   return (
     <div style={{ minHeight:'100vh', background:C.bg }}>
-      {/* Header */}
-      <div style={{ position:'sticky', top:0, zIndex:10, background:C.bg, padding:'12px 16px', borderBottom:`1px solid ${C.bd}`, display:'flex', alignItems:'center', gap:10 }}>
+      {/* Header — same as ItemListPage */}
+      <div style={{ padding:'12px 16px', display:'flex', alignItems:'center', gap:10, borderBottom:`1px solid ${C.bd}` }}>
         <button onClick={onBack} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}><IcoBack /></button>
-        <div style={{ flex:1 }}>
-          <div style={{ fontSize:14, fontWeight:500, fontFamily:SR, color:C.tx }}>{title}</div>
-          <div style={{ fontSize:11, color:C.sub }}>{items.length}種</div>
+        <div style={{ flex:1, fontSize:15, fontWeight:500, fontFamily:SR, color:C.tx }}>
+          {title || 'ワインリスト'}
         </div>
+        <span style={{ fontSize:12, color:C.sub }}>{items.length}件</span>
       </div>
 
-      <div style={{ padding:'8px 12px 100px' }}>
+      {/* Search — same as ItemListPage */}
+      <div style={{ padding:'10px 16px 0' }}>
+        <input onChange={e => onSearch(e.target.value)} placeholder="検索..."
+          style={{ width:'100%', padding:'10px 14px', border:`1px solid ${C.bd}`, borderRadius:10, fontSize:14, fontFamily:F, background:C.card, boxSizing:'border-box', outline:'none' }} />
+      </div>
+
+      {/* Sort pills — same as ItemListPage */}
+      <div style={{ padding:'8px 16px', display:'flex', gap:4, overflowX:'auto', alignItems:'center' }}>
+        {SORT_OPTIONS.map(opt => (
+          <button key={opt.val} onClick={() => setSort(opt.val)}
+            style={{
+              padding:'4px 10px', borderRadius:10, border: sort === opt.val ? `1px solid ${C.acc}` : `1px solid ${C.bd}`,
+              background: sort === opt.val ? '#F5F0E5' : 'transparent',
+              color: sort === opt.val ? C.acc : C.sub,
+              fontSize:10, fontFamily:F, cursor:'pointer', whiteSpace:'nowrap', fontWeight: sort === opt.val ? 600 : 400,
+            }}>{opt.label}</button>
+        ))}
+      </div>
+
+      {/* Item list — same card style as ItemListPage */}
+      <div style={{ padding:'0 16px 120px' }}>
         {loading ? (
           <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>読み込み中...</div>
         ) : items.length === 0 ? (
-          <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>アイテムがありません</div>
+          <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>該当なし</div>
         ) : items.map(item => {
           const isExpanded = expandedId === item.id;
           return (
             <div key={item.id} onClick={() => setExpandedId(isExpanded ? null : item.id)}
-              style={{ padding:'10px 14px', marginBottom:3, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, cursor:'pointer' }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+              style={{
+                background:C.card, borderRadius:1,
+                padding:'12px 14px 12px 20px',
+                border:`1px solid ${C.bd}`,
+                marginBottom:5, cursor:'pointer', position:'relative',
+              }}>
+              <div style={{ position:'absolute', left:0, top:0, bottom:0, width:3, background: storeColor[storeId] || C.acc, opacity:0.5 }} />
+              <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
                 <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                    {item.vintage && (
-                      <span style={{ fontSize:11, fontWeight:600, color:C.acc, fontFamily:F, flexShrink:0 }}>
-                        {item.vintage}
-                      </span>
-                    )}
-                    <span style={{ fontSize:12, fontWeight:600, color:C.tx, fontFamily:F, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                      {item.name_en || item.name_jp}
-                    </span>
+                  {item.producer_en && <div style={{ fontSize:9, color:'#A09A8C', fontFamily:F, letterSpacing:0.3, marginBottom:1 }}>{item.producer_en}</div>}
+                  {(item.section_en || item.section) && <div style={{ fontSize:9, color:'#B0AA9C', fontFamily:F, marginTop:1 }}>{item.section_en || item.section}</div>}
+                  <div style={{ fontSize:14, fontWeight:600, fontFamily:EL, color:C.tx, lineHeight:1.35 }}>
+                    {item.name_en || item.name_jp}
+                    {item.vintage && <span style={{ fontWeight:400, fontSize:12, color:'#8A8478', marginLeft:3, fontFamily:F }}>{item.vintage}</span>}
                   </div>
                   {item.name_jp && item.name_en && (
-                    <div style={{ fontSize:10, color:C.sub, marginTop:1 }}>{item.name_jp}</div>
+                    <div style={{ fontSize:10, color:'#B0AA9C', fontFamily:"'Noto Sans JP',sans-serif", marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name_jp}</div>
                   )}
-                  {item.producer_en && (
-                    <div style={{ fontSize:10, color:'#999', marginTop:1 }}>{item.producer_en}</div>
-                  )}
+                  {item.producer_jp && <div style={{ fontSize:10, color:'#B0AA9C', fontFamily:F, marginTop:1 }}>{item.producer_jp}</div>}
                 </div>
-                <div style={{ flexShrink:0, marginLeft:8, textAlign:'right' }}>
-                  {item.sell_price_incl != null && (
-                    <div style={{ fontSize:12, fontWeight:600, color:C.tx }}>¥{item.sell_price_incl.toLocaleString()}</div>
-                  )}
-                  {item.glass_price != null && (
-                    <div style={{ fontSize:10, color:C.sub }}>Glass ¥{item.glass_price.toLocaleString()}</div>
-                  )}
+                <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:3, flexShrink:0, marginLeft:10 }}>
+                  {item.sell_price_incl != null && <span style={{ fontSize:12, fontWeight:600, color:C.acc, fontFamily:F }}>¥{item.sell_price_incl.toLocaleString()}</span>}
+                  {item.glass_price != null && <span style={{ fontSize:10, color:'#6B8C5E', fontFamily:F }}>Glass ¥{item.glass_price.toLocaleString()}</span>}
+                  {item.cost_price != null && <span style={{ fontSize:10, color:'#B0AA9C', fontFamily:F }}>仕入: {fmt(item.cost_price)}</span>}
+                  {item.sell_price != null && item.sell_price !== item.sell_price_incl && <span style={{ fontSize:10, color:'#B0AA9C', fontFamily:F }}>税抜: {fmt(item.sell_price)}</span>}
                 </div>
               </div>
 
@@ -761,10 +823,8 @@ function WineListItemsPage({ storeId, section, title, stores, onBack }) {
                 <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${C.bd}`, fontSize:11, color:C.sub }}>
                   <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
                     {item.section_en && <span>Section: {item.section_en}</span>}
-                    {item.producer_jp && <span>生産者: {item.producer_jp}</span>}
+                    {item.section && item.section !== item.section_en && <span>{item.section}</span>}
                     {item.region && <span>地域: {item.region}</span>}
-                    {item.sell_price != null && <span>税抜: ¥{item.sell_price.toLocaleString()}</span>}
-                    {item.cost_price != null && <span>原価: ¥{item.cost_price.toLocaleString()}</span>}
                   </div>
                 </div>
               )}
