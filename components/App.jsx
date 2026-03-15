@@ -410,7 +410,7 @@ function HomeView({ stores, categories, onNavigate, onWineList, onWineListPrint,
 
                 {/* Wine List */}
                 <div style={{ display:'flex', alignItems:'center' }}>
-                  <div onClick={() => onWineListPrint(store.id)} style={{
+                  <div onClick={() => onNavigate('wl-sections', { store: store.id })} style={{
                     padding:'11px 16px', cursor:'pointer', display:'flex', alignItems:'center', flex:1,
                   }}>
                     <div style={{ fontSize:12, fontWeight:600, color:C.tx, flex:1, fontFamily:F }}>Wine List</div>
@@ -567,6 +567,204 @@ function StockCategoryView({ storeId, stores, categories, onBack, onNavigate }) 
                     display:'flex', justifyContent:'center', alignItems:'center',
                   }}>
                     <span style={{ fontSize:11, color:C.acc, fontWeight:600 }}>全て表示 →</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ===== WineListSectionView — section accordion for wine list items =====
+function WineListSectionView({ storeId, stores, onBack, onNavigate }) {
+  const [sections, setSections] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const store = stores.find(s => s.id === storeId);
+  const getStoreName = (s) => {
+    if (s?.id === 'burgundy') return 'Burgundy';
+    if (s?.id === 'ume') return 'umé';
+    if (s?.id === 'ch') return 'C&H';
+    return s?.name || '';
+  };
+  const getStoreFont = (s) => (s?.id === 'burgundy' || s?.id === 'ume' || s?.id === 'ch') ? EL : SR;
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const r = await fetch(`/api/wine-list-items?store=${storeId}`);
+        const d = await r.json();
+        setSections(d.sections || []);
+      } catch(e) { setSections([]); }
+      setLoading(false);
+    })();
+  }, [storeId]);
+
+  const totalItems = sections.reduce((s, sec) => s + (sec.items?.length || 0), 0);
+  const totalValue = sections.reduce((s, sec) =>
+    s + (sec.items || []).reduce((v, it) => v + (it.sell_price_incl || it.sell_price || 0), 0), 0);
+
+  const sectionColors = [
+    ['#8A6D3B', '#F5F0E5'], ['#6A4A8A', '#F0E8F5'], ['#3A6A3A', '#E8F0E8'],
+    ['#4A6A8A', '#E8EEF5'], ['#8A3A3A', '#F5E8E8'], ['#6A6258', '#F0EDE8'],
+    ['#3A5A6A', '#E5EEF0'], ['#7A5A3A', '#F5EDE5'], ['#4A5A3A', '#EAF0E5'],
+  ];
+
+  return (
+    <div style={{ minHeight:'100vh', background:C.bg }}>
+      <div style={{ padding:'12px 16px', display:'flex', alignItems:'center', gap:10, borderBottom:`1px solid ${C.bd}` }}>
+        <button onClick={onBack} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}><IcoBack /></button>
+        <div style={{ flex:1, fontSize:15, fontWeight:500, fontFamily:getStoreFont(store), color:C.tx }}>
+          {getStoreName(store)} Wine List
+        </div>
+      </div>
+
+      <div style={{ padding:'12px 16px 100px' }}>
+        {loading ? (
+          <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>読み込み中...</div>
+        ) : sections.length === 0 ? (
+          <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>
+            ワインリストがありません。<br />エクセル取込からインポートしてください。
+          </div>
+        ) : (
+          <>
+            {/* All items */}
+            <div style={{ marginBottom:4, border:`1px solid ${C.bd}`, borderRadius:2, overflow:'hidden' }}>
+              <div onClick={() => onNavigate('wl-items', { store: storeId, title: `${getStoreName(store)} - All Wine List` })}
+                style={{ padding:'12px 16px', background:C.card, cursor:'pointer', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <div style={{ width:4, height:24, borderRadius:2, background:C.acc, opacity:0.6 }} />
+                  <div style={{ fontSize:13, fontWeight:600, color:C.tx, fontFamily:F }}>All Wine List</div>
+                </div>
+                <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                  <span style={{ fontSize:11, color:C.sub }}>{totalItems}種</span>
+                  {totalValue > 0 && <span style={{ fontSize:11, color:C.acc, fontWeight:600 }}>{fmtY(Math.round(totalValue))}円</span>}
+                </div>
+              </div>
+            </div>
+
+            {/* Per section */}
+            {sections.map((sec, i) => {
+              const sc = sectionColors[i % sectionColors.length];
+              const secValue = (sec.items || []).reduce((v, it) => v + (it.sell_price_incl || it.sell_price || 0), 0);
+              return (
+                <div key={sec.section_order + ':' + sec.section} style={{ marginBottom:4, border:`1px solid ${C.bd}`, borderRadius:2, overflow:'hidden' }}>
+                  <div onClick={() => onNavigate('wl-items', {
+                    store: storeId,
+                    section: sec.section,
+                    title: `${getStoreName(store)} · ${sec.section_en || sec.section}`,
+                  })} style={{
+                    padding:'12px 16px', background:C.card, cursor:'pointer',
+                    display:'flex', justifyContent:'space-between', alignItems:'center',
+                  }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <div style={{ width:4, height:24, borderRadius:2, background:sc[0], opacity:0.6 }} />
+                      <div>
+                        <div style={{ fontSize:13, fontWeight:600, color:C.tx, fontFamily:F }}>{sec.section_en || sec.section}</div>
+                        {sec.section_en && sec.section && sec.section_en !== sec.section && (
+                          <div style={{ fontSize:10, color:C.sub }}>{sec.section}</div>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                      <span style={{ fontSize:11, color:C.sub }}>{(sec.items || []).length}種</span>
+                      {secValue > 0 && <span style={{ fontSize:11, color:C.acc, fontWeight:600 }}>{fmtY(Math.round(secValue))}円</span>}
+                      <Chev open={false} />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ===== WineListItemsPage — list wine list items (like ItemListPage) =====
+function WineListItemsPage({ storeId, section, title, stores, onBack }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const r = await fetch(`/api/wine-list-items?store=${storeId}`);
+        const d = await r.json();
+        let all = d.items || [];
+        if (section) all = all.filter(it => it.section === section);
+        setItems(all);
+      } catch(e) { setItems([]); }
+      setLoading(false);
+    })();
+  }, [storeId, section]);
+
+  return (
+    <div style={{ minHeight:'100vh', background:C.bg }}>
+      {/* Header */}
+      <div style={{ position:'sticky', top:0, zIndex:10, background:C.bg, padding:'12px 16px', borderBottom:`1px solid ${C.bd}`, display:'flex', alignItems:'center', gap:10 }}>
+        <button onClick={onBack} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}><IcoBack /></button>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:14, fontWeight:500, fontFamily:SR, color:C.tx }}>{title}</div>
+          <div style={{ fontSize:11, color:C.sub }}>{items.length}種</div>
+        </div>
+      </div>
+
+      <div style={{ padding:'8px 12px 100px' }}>
+        {loading ? (
+          <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>読み込み中...</div>
+        ) : items.length === 0 ? (
+          <div style={{ textAlign:'center', padding:40, color:C.sub, fontSize:13 }}>アイテムがありません</div>
+        ) : items.map(item => {
+          const isExpanded = expandedId === item.id;
+          return (
+            <div key={item.id} onClick={() => setExpandedId(isExpanded ? null : item.id)}
+              style={{ padding:'10px 14px', marginBottom:3, borderRadius:2, border:`1px solid ${C.bd}`, background:C.card, cursor:'pointer' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                    {item.vintage && (
+                      <span style={{ fontSize:11, fontWeight:600, color:C.acc, fontFamily:F, flexShrink:0 }}>
+                        {item.vintage}
+                      </span>
+                    )}
+                    <span style={{ fontSize:12, fontWeight:600, color:C.tx, fontFamily:F, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                      {item.name_en || item.name_jp}
+                    </span>
+                  </div>
+                  {item.name_jp && item.name_en && (
+                    <div style={{ fontSize:10, color:C.sub, marginTop:1 }}>{item.name_jp}</div>
+                  )}
+                  {item.producer_en && (
+                    <div style={{ fontSize:10, color:'#999', marginTop:1 }}>{item.producer_en}</div>
+                  )}
+                </div>
+                <div style={{ flexShrink:0, marginLeft:8, textAlign:'right' }}>
+                  {item.sell_price_incl != null && (
+                    <div style={{ fontSize:12, fontWeight:600, color:C.tx }}>¥{item.sell_price_incl.toLocaleString()}</div>
+                  )}
+                  {item.glass_price != null && (
+                    <div style={{ fontSize:10, color:C.sub }}>Glass ¥{item.glass_price.toLocaleString()}</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Expanded detail */}
+              {isExpanded && (
+                <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${C.bd}`, fontSize:11, color:C.sub }}>
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+                    {item.section_en && <span>Section: {item.section_en}</span>}
+                    {item.producer_jp && <span>生産者: {item.producer_jp}</span>}
+                    {item.region && <span>地域: {item.region}</span>}
+                    {item.sell_price != null && <span>税抜: ¥{item.sell_price.toLocaleString()}</span>}
+                    {item.cost_price != null && <span>原価: ¥{item.cost_price.toLocaleString()}</span>}
                   </div>
                 </div>
               )}
@@ -4307,6 +4505,13 @@ export default function App() {
     if (subView?.type === 'stock-categories') {
       return <StockCategoryView storeId={subView.params.store} stores={stores} categories={categories}
         onBack={goBack} onNavigate={navigate} />;
+    }
+    if (subView?.type === 'wl-sections') {
+      return <WineListSectionView storeId={subView.params.store} stores={stores} onBack={goBack} onNavigate={navigate} />;
+    }
+    if (subView?.type === 'wl-items') {
+      return <WineListItemsPage storeId={subView.params.store} section={subView.params.section}
+        title={subView.params.title} stores={stores} onBack={goBack} />;
     }
     if (subView?.type === 'ai-diagnosis') {
       return <AIDiagnosisView storeId={subView.params.store} stores={stores} mode={subView.params.mode || 'stock'} onBack={goBack} />;
