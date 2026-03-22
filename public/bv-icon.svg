@@ -1,9 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="102" fill="#1A1714"/>
-  <ellipse cx="256" cy="195" rx="68" ry="35" fill="#722F37"/>
-  <path d="M178 140 C173 215 208 245 256 262 C304 245 339 215 334 140" stroke="#C9A84C" stroke-width="4.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  <ellipse cx="256" cy="140" rx="78" ry="15" stroke="#C9A84C" stroke-width="4" fill="none"/>
-  <line x1="256" y1="262" x2="256" y2="348" stroke="#C9A84C" stroke-width="4" stroke-linecap="round"/>
-  <ellipse cx="256" cy="353" rx="52" ry="11" stroke="#C9A84C" stroke-width="4" fill="none"/>
-  <text x="256" y="430" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="48" font-weight="400" letter-spacing="8" fill="#C9A84C">BV</text>
+  <rect width="512" height="512" rx="96" fill="#F6F4F0"/>
+  <g transform="translate(256,256)">
+    <circle r="180" fill="none" stroke="#D4AF37" stroke-width="2" opacity="0.3"/>
+    <circle r="140" fill="none" stroke="#D4AF37" stroke-width="1.5" opacity="0.2"/>
+    <line x1="0" y1="-160" x2="0" y2="-120" stroke="#D4AF37" stroke-width="2"/>
+    <line x1="160" y1="0" x2="120" y2="0" stroke="#D4AF37" stroke-width="2"/>
+    <line x1="0" y1="160" x2="0" y2="120" stroke="#D4AF37" stroke-width="2"/>
+    <line x1="-160" y1="0" x2="-120" y2="0" stroke="#D4AF37" stroke-width="2"/>
+    <path d="M0,-60 C-20,-60 -30,-30 -30,0 C-30,40 -15,55 0,70 C15,55 30,40 30,0 C30,-30 20,-60 0,-60Z" fill="none" stroke="#1A1714" stroke-width="3"/>
+    <line x1="0" y1="70" x2="0" y2="100" stroke="#1A1714" stroke-width="3"/>
+    <line x1="-20" y1="100" x2="20" y2="100" stroke="#1A1714" stroke-width="3"/>
+  </g>
+  <text x="256" y="440" text-anchor="middle" font-family="DM Sans,sans-serif" font-size="28" font-weight="600" fill="#1A1714" letter-spacing="4">BV</text>
 </svg>
