@@ -74,7 +74,7 @@ function LoginScreen({ onLogin }) {
   return (
     <div style={{ minHeight:'100vh', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:C.bg, fontFamily:F }}>
       <div style={{ textAlign:'center', marginBottom:40 }}>
-        <div style={{ fontSize:13, letterSpacing:4, color:C.sub, marginBottom:8, fontFamily:F }}>WINE COMPASS</div>
+        <div style={{ fontSize:13, letterSpacing:4, color:C.sub, marginBottom:8, fontFamily:F }}>BEVERAGE</div>
         <div style={{ width:48, height:1, background:C.acc, margin:'0 auto 16px' }} />
         <div style={{ fontSize:14, color:C.sub }}>PINを入力</div>
       </div>
@@ -129,7 +129,7 @@ function AISommelier({ onClose }) {
   useEffect(() => {
     fetch('/api/stats').then(r => r.json()).then(stats => {
       const summary = `在庫概要: ${stats.total || 0}種, ${stats.totalQty || 0}本, 総額${Math.round((stats.totalValue || 0) / 10000)}万円, ${stats.storeCount || 0}店舗`;
-      setSystemPrompt(`You are a sommelier AI assistant for Wine Compass. ${summary}. Answer in Japanese. Be concise.`);
+      setSystemPrompt(`You are a sommelier AI assistant for Beverage. ${summary}. Answer in Japanese. Be concise.`);
     }).catch(() => {});
   }, []);
 
@@ -322,7 +322,7 @@ function HomeView({ stores, categories, onNavigate, onWineList, onWineListPrint,
     <div style={{ padding:'16px 16px 100px' }}>
       {/* Header */}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
-        <div style={{ fontSize:18, fontWeight:400, letterSpacing:1, color:C.tx, fontFamily:EL }}>Wine Compass</div>
+        <div style={{ fontSize:18, fontWeight:400, letterSpacing:1, color:C.tx, fontFamily:EL }}>Beverage</div>
         <button onClick={onShowAI} style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px', background:C.card, border:`1px solid ${C.bd}`, borderRadius:20, cursor:'pointer' }}>
           <span style={{ fontSize:14 }}>🍷</span>
           <span style={{ fontSize:11, fontWeight:600, color:C.acc, fontFamily:F }}>AI Sommelier</span>

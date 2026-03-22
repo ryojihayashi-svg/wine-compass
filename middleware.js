@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-// HMAC-SHA256 session middleware for Wine Compass API
+// HMAC-SHA256 session middleware for Beverage API
 // Uses Web Crypto API (Edge Runtime compatible)
 
 const SECRET_ENV = 'WC_SESSION_SECRET';

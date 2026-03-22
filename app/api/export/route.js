@@ -80,7 +80,7 @@ export async function GET(req) {
       }).join(',')),
     ].join('\r\n');
 
-    const fileName = `wine-compass-inventory${storeId ? '-' + storeId : ''}-${new Date().toISOString().slice(0, 10)}.csv`;
+    const fileName = `beverage-inventory${storeId ? '-' + storeId : ''}-${new Date().toISOString().slice(0, 10)}.csv`;
 
     return new Response(csvContent, {
       headers: {

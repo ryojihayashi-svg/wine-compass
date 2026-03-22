@@ -1,11 +1,11 @@
 export const metadata = {
-  title: 'Wine Compass',
+  title: 'Beverage',
   description: 'Wine & Beverage Inventory Management',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'Wine Compass',
+    title: 'Beverage',
   },
 }
 
